@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>cn.ypbin</groupId>
+        <artifactId>ypbin-iot-cloud-dependencies</artifactId>
+        <version>${revision}</version>
+        <relativePath>../ypbin-iot-cloud-dependencies/pom.xml</relativePath>
+    </parent>
+
+    <artifactId>ypbin-iot-cloud-integration-tests</artifactId>
+
+    <properties>
+        <!-- 不发布：集成测试只在构建期跑，没有任何运行期价值（与根 pom 的 dev-only profile 配合）。 -->
+        <maven.deploy.skip>true</maven.deploy.skip>
+        <gpg.skip>true</gpg.skip>
+    </properties>
+
+    <name>${project.artifactId}</name>
+    <description>集成测试（不发布，-Pit 触发 failsafe）：M0a 只有占位用例，端到端场景在 P5 落地</description>
+
+    <dependencies>
+        <!--
+          三个部署单元（P5 的「三单元能起并互相调用」要在这里跑）。
+          M0a 只做占位：用例只断言三个启动类在 IT 的 classpath 上且带 Boot 注解。
+          ⚠️ 容器化基础设施（MySQL/Redis/EMQX/IoTDB）不在本机跑，交 CI 或另一台机器（spec §4.5）。
+        -->
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-iot-cloud-gateway</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-iot-cloud-business</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-iot-cloud-access</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

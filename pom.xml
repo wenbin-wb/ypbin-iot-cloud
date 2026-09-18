@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      复用母仓 ypbin-starter 的依赖管理、插件配置与门禁 profile（NullAway / dep-convergence 等定义在父 pom 里）。
+
+      parent 钉**已发布正式版** 3.4.0（Central 可解析）而不是 SNAPSHOT：
+        ① 干净环境（CI / 新机器）可直接构建，无需先装母仓；
+        ② 可复现：快照父 pom 会让「本地能构建、CI 不能」。
+      relativePath 故意留空：强制从仓库解析，避免误用同目录下的同名源码树。
+      版本显式锁定，不自动跟随（母仓规矩）。
+    -->
+    <parent>
+        <groupId>cn.ypbin</groupId>
+        <artifactId>ypbin-starter-dependencies</artifactId>
+        <version>3.4.0</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>cn.ypbin</groupId>
+    <artifactId>ypbin-iot-cloud</artifactId>
+    <version>${revision}</version>
+    <packaging>pom</packaging>
+
+    <name>${project.artifactId}</name>
+    <description>ypbin-iot-cloud —— IoT 平台骨架：gateway / business / access 三个部署单元</description>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <id>wenbin</id>
+            <name>wenbin</name>
+            <roles>
+                <role>author</role>
+            </roles>
+        </developer>
+    </developers>
+
+    <modules>
+        <module>ypbin-iot-cloud-dependencies</module>
+        <module>ypbin-iot-cloud-bom</module>
+        <module>ypbin-iot-cloud-common</module>
+        <module>ypbin-iot-cloud-api</module>
+        <module>ypbin-iot-cloud-auth</module>
+        <module>ypbin-iot-cloud-core</module>
+        <module>ypbin-iot-cloud-openapi</module>
+        <module>ypbin-iot-cloud-gateway</module>
+        <module>ypbin-iot-cloud-business</module>
+        <module>ypbin-iot-cloud-access</module>
+        <!-- 非发布模块（architecture-tests / integration-tests）**不在此处**：见 dev-only profile -->
+    </modules>
+
+    <properties>
+        <!-- 与 ypbin-iot-starter 同一 revision 语义：未发布，跟着父 pom 的发布节奏走 -->
+        <revision>0.1.0-SNAPSHOT</revision>
+
+        <java.version>21</java.version>
+        <maven.compiler.release>21</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    </properties>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <!--
+                  覆盖父 pom 内联的 license header 署名：父 pom 写的是 ypbin-starter authors，
+                  不改的话本仓所有文件会被强制署上母仓署名（spotless 会直接把文件改掉）。
+                  本文件里的 header 文本必须与各个 .java 文件顶部的 header 逐字一致。
+                -->
+                <plugin>
+                    <groupId>com.diffplug.spotless</groupId>
+                    <artifactId>spotless-maven-plugin</artifactId>
+                    <configuration>
+                        <java>
+                            <licenseHeader>
+                                <content><![CDATA[/*
+ * Copyright (c) 2024-present ypbin-iot-cloud authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+]]></content>
+                            </licenseHeader>
+                            <trimTrailingWhitespace/>
+                            <endWithNewline/>
+                            <importOrder/>
+                            <removeUnusedImports/>
+                        </java>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+
+    <profiles>
+        <!--
+          非发布模块隔离 profile（activeByDefault）。
+
+          为什么必须这样放：`maven.deploy.skip=true` 对 central-publishing-maven-plugin
+          （extensions=true 接管 deploy 生命周期）**无效**，未签名的架构测试产物会混进上传包
+          并导致整个 deployment 校验失败（母仓 3.0.0 首发即如此）。放进 activeByDefault profile 后，
+          `-Prelease` 会让它失效，两个非发布模块自动离开发布反应堆。
+
+          ⚠️ 副作用（与母仓一致）：只要**显式激活任一 profile**（-Pit / -Pnullaway / ...），
+          本 profile 即失效，架构门禁（ArchUnit / 源码规范 / 模块发布边界）与集成测试模块
+          会一起从反应堆里消失。因此发布前必须用 tools/preflight.sh 按顺序把门禁各跑一遍。
+        -->
+        <profile>
+            <id>dev-only</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <modules>
+                <module>ypbin-iot-cloud-architecture-tests</module>
+                <module>ypbin-iot-cloud-integration-tests</module>
+            </modules>
+        </profile>
+
+        <!--
+          发布 profile（与母仓同一套做法）。
+
+          根聚合 pom 的 parent 是 ypbin-starter-dependencies，而 central-publishing 配置在
+          母仓的**根 pom** 里、不在已发布的父 pom 中，因此这里必须自己声明一份。
+          excludeArtifacts 显式排除两个非发布模块：该插件按 artifactId 比对，
+          **不读取 maven.deploy.skip**。
+        -->
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <version>0.11.0</version>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <publishingServerId>central</publishingServerId>
+                            <autoPublish>true</autoPublish>
+                            <waitUntil>uploaded</waitUntil>
+                            <excludeArtifacts>
+                                <artifact>ypbin-iot-cloud-architecture-tests</artifact>
+                                <artifact>ypbin-iot-cloud-integration-tests</artifact>
+                            </excludeArtifacts>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>3.2.8</version>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>sign</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!--
+          集成测试 profile（复用父 pom 的 it profile：它只加了 failsafe 执行）。
+
+          必须在这里补 <modules>：显式激活任一 profile 都会让 activeByDefault 的 dev-only 失效，
+          不补的话 `-Pit verify` 的反应堆里**没有集成测试模块**，命令会「成功」但一个 IT 都没跑。
+
+          在这里显式跳过 surefire：`-Pit` 的语义就是「只跑集成测试」。
+          为什么不用命令行开关 `-Dsurefire.skip=true`：本仓沿用母仓实测结论 —— 该开关不生效，
+          等于把全量单测重复跑一遍；放在 profile 配置里是声明式的，可被断言验证。
+        -->
+        <profile>
+            <id>it</id>
+            <modules>
+                <module>ypbin-iot-cloud-architecture-tests</module>
+                <module>ypbin-iot-cloud-integration-tests</module>
+            </modules>
+            <build>
+                <plugins>
+                    <plugin>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <skip>true</skip>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>

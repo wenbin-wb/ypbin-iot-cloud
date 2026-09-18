@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>cn.ypbin</groupId>
+        <artifactId>ypbin-iot-cloud-dependencies</artifactId>
+        <version>${revision}</version>
+        <relativePath>../ypbin-iot-cloud-dependencies/pom.xml</relativePath>
+    </parent>
+
+    <artifactId>ypbin-iot-cloud-gateway</artifactId>
+
+    <name>${project.artifactId}</name>
+    <description>部署单元① 网关：M0a 仅可启动骨架（路由/鉴权/租户上下文注入/剥离伪造头在 P2 落地）</description>
+
+    <dependencies>
+        <!--
+          网关后续接 Spring Cloud Gateway（WebFlux 系，2025.1.x 起制品名为 gateway-server-webflux），
+          P0 先只引 WebFlux，避免 P2 再换依赖族。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+        <!-- 健康检查端点：M0a 的「能起」按 P5 用 curl /actuator/health 验收 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!--
+              spring-boot-maven-plugin **必须显式写版本**：本仓的父 pom 只 import 了
+              spring-boot-dependencies 这个 BOM，而 BOM import 不传递 pluginManagement，
+              插件版本不会自动被管理（实测父 pom 链里没有它的 pluginManagement）。
+            -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring-boot.version}</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>

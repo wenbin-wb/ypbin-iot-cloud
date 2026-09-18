@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>cn.ypbin</groupId>
+        <artifactId>ypbin-iot-cloud-dependencies</artifactId>
+        <version>${revision}</version>
+        <relativePath>../ypbin-iot-cloud-dependencies/pom.xml</relativePath>
+    </parent>
+
+    <artifactId>ypbin-iot-cloud-core</artifactId>
+
+    <name>${project.artifactId}</name>
+    <description>业务核心库：产品/物模型/设备/数据/规则/告警（M0a 仅占位）</description>
+</project>

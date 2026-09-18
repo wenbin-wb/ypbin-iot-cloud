@@ -1,0 +1,16 @@
+# 部署单元② 业务服务（M0a 骨架）。
+#
+# 只有应用名与端口：内部端点（带入站守卫）、租约扫描与失效判定骨架在 P3 落地
+# （IOT-CLOUD-SPEC.md §4.2 / §3.1①）。M0a 不接数据库（Flyway 迁移在 M0b 定稿，§12.2）。
+server:
+  port: 18081
+
+spring:
+  application:
+    name: ypbin-iot-cloud-business
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

@@ -1,0 +1,6 @@
+name: ypbin-iot-cloud CodeQL 配置
+
+# 只扫描源码：排除构建产物，避免把生成物混进安全面板
+paths-ignore:
+  - '**/target/**'
+  - '**/*.md'

@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>cn.ypbin</groupId>
+        <artifactId>ypbin-iot-cloud</artifactId>
+        <version>${revision}</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>ypbin-iot-cloud-dependencies</artifactId>
+    <packaging>pom</packaging>
+
+    <name>${project.artifactId}</name>
+    <description>本仓统一依赖版本管理，同时作为全部子模块的 parent（含覆盖率门禁配置）</description>
+
+    <properties>
+        <!--
+          设备接入框架（cn.ypbin:ypbin-iot-starter）的版本。
+          该框架**尚未发布**（0.1.0-SNAPSHOT 未上 Maven Central，见 IOT-CLOUD-SPEC.md §11），
+          因此下面的 ypbin-iot-bom import 保持注释状态；access 在 P4 才接 iot-starter。
+        -->
+        <ypbin.iot.version>0.1.0-SNAPSHOT</ypbin.iot.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!--
+              ===== ypbin-iot-bom import 占位（M0a 不启用）=====
+
+              启用条件（两条都满足才可放开）：
+                ① cn.ypbin:ypbin-iot-bom 能被解析（首次发布到 Central，或本地 install / 私服 SNAPSHOT）；
+                ② access 开始接 iot-starter（IOT-M0A-IMPLEMENTATION-PLAN.md 的 P4）。
+              现在放开会直接让干净环境（CI / 新机器）构建失败，而不是失败在某个模块上。
+
+              放开后 access 只引 BOM，不写具体协议模块版本（协议模块按需引入）。
+
+            <dependency>
+                <groupId>cn.ypbin</groupId>
+                <artifactId>ypbin-iot-bom</artifactId>
+                <version>${ypbin.iot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            -->
+
+            <!-- ===== 本仓模块（版本统一由 revision 控制）===== -->
+            <dependency>
+                <groupId>cn.ypbin</groupId>
+                <artifactId>ypbin-iot-cloud-common</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.ypbin</groupId>
+                <artifactId>ypbin-iot-cloud-api</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.ypbin</groupId>
+                <artifactId>ypbin-iot-cloud-auth</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.ypbin</groupId>
+                <artifactId>ypbin-iot-cloud-core</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.ypbin</groupId>
+                <artifactId>ypbin-iot-cloud-openapi</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.ypbin</groupId>
+                <artifactId>ypbin-iot-cloud-gateway</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.ypbin</groupId>
+                <artifactId>ypbin-iot-cloud-business</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.ypbin</groupId>
+                <artifactId>ypbin-iot-cloud-access</artifactId>
+                <version>${revision}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- 测试基座：全部模块统一 JUnit 5 + AssertJ + Boot 测试支持（与母仓同构） -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!--
+              覆盖率门禁（M0a 第一批门禁的第 5 项）。
+
+              父 pom 把 jacoco-check 绑在 test 阶段、BUNDLE 指令覆盖率下限 0.80；
+              本仓**保持 spec §9.1 第 9 项的原值：指令 >= 0.80、分支 >= 0.64**（不放宽阈值）。
+              骨架期之所以能过：目前唯一被真正度量的模块是 `-common`（唯一有测试的模块，指令 13/13），
+              其余模块因 surefire 不产生 `jacoco.exec` 而被 jacoco 静默跳过（见下方"已知边界"）。
+              （届时同步改 tools/export-coverage.mjs 的 GATE 常量，两处必须一致）。
+
+              必须在 execution 级用 combine.self="override" 覆盖：父 pom 的 rules 定义在
+              jacoco-check 执行内，插件级 configuration 不生效。
+
+              已知边界（M0b 处理）：模块若没有测试，surefire 不产生 jacoco.exec，
+              report/check 会以「missing execution data file」跳过 —— 也就是「有主源码但没测试」
+              的模块会静默绕过本门禁。M0b 的覆盖率快照门禁（tools/export-coverage.mjs 的 check 模式）
+              负责把这种「门禁空转」暴露出来（见 IOT-CLOUD-SPEC.md §9.1 第 8 项）。
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <configuration>
+                    <!--
+                      启动类（*Application）不参与覆盖率统计：它们只有一行 SpringApplication.run，
+                      M0a 阶段不写 @SpringBootTest（本机 2 vCPU，"三单元能起"是 P5 的运行期验收，
+                      不是单测），留在 bundle 里会让这三个部署单元永久 0%、门禁必红。
+                      这是**显式声明豁免**，不是放宽阈值。
+                    -->
+                    <excludes>
+                        <exclude>**/*Application.class</exclude>
+                    </excludes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>jacoco-check</id>
+                        <configuration>
+                            <rules combine.self="override">
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>INSTRUCTION</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <!-- 与 spec §9.1 第 9 项一致：指令覆盖率 >= 0.80 -->
+                                            <minimum>0.80</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <!-- 与 spec §9.1 第 9 项一致：分支覆盖率 >= 0.64 -->
+                                            <minimum>0.64</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

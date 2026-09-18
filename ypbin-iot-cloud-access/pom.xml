@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>cn.ypbin</groupId>
+        <artifactId>ypbin-iot-cloud-dependencies</artifactId>
+        <version>${revision}</version>
+        <relativePath>../ypbin-iot-cloud-dependencies/pom.xml</relativePath>
+    </parent>
+
+    <artifactId>ypbin-iot-cloud-access</artifactId>
+
+    <name>${project.artifactId}</name>
+    <description>部署单元③ 设备接入（有状态）：M0a 仅可启动骨架，P4 才接 ypbin-iot-starter</description>
+
+    <dependencies>
+        <!--
+          ⚠️ P0 故意**不**依赖 cn.ypbin:ypbin-iot-bom / 协议模块。
+
+          iot-starter 尚未发布（0.1.0-SNAPSHOT 未上 Maven Central），现在引入会让干净环境构建失败。
+          P4 接入步骤：
+            ① 在 ypbin-iot-cloud-dependencies 放开 ypbin-iot-bom 的 import（那里有占位说明）；
+            ② 这里按需引协议模块（mqtt / modbus / opcua / tcp）。
+          P0 的 access 只验证「有状态的第三单元能被单独启动与探活」。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- 健康检查端点（P5 用 curl /actuator/health 验收） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- 版本必须显式写：BOM import 不传递 pluginManagement（同 gateway 模块的说明） -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring-boot.version}</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>

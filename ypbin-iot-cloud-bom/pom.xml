@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>cn.ypbin</groupId>
+        <artifactId>ypbin-iot-cloud-dependencies</artifactId>
+        <version>${revision}</version>
+        <relativePath>../ypbin-iot-cloud-dependencies/pom.xml</relativePath>
+    </parent>
+
+    <artifactId>ypbin-iot-cloud-bom</artifactId>
+    <packaging>pom</packaging>
+
+    <name>${project.artifactId}</name>
+    <description>对外统一 BOM：下游 import 本 BOM 即可管理全部 ypbin-iot-cloud-* 模块版本</description>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- 与 ypbin-iot-cloud-dependencies 的模块清单保持一致：
+                 新增/删除本仓模块时两处都要改（M0b 会加一条「BOM 覆盖全部可发布模块」的门禁来兜底）。 -->
+            <dependency>
+                <groupId>cn.ypbin</groupId>
+                <artifactId>ypbin-iot-cloud-common</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.ypbin</groupId>
+                <artifactId>ypbin-iot-cloud-api</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.ypbin</groupId>
+                <artifactId>ypbin-iot-cloud-auth</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.ypbin</groupId>
+                <artifactId>ypbin-iot-cloud-core</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.ypbin</groupId>
+                <artifactId>ypbin-iot-cloud-openapi</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.ypbin</groupId>
+                <artifactId>ypbin-iot-cloud-gateway</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.ypbin</groupId>
+                <artifactId>ypbin-iot-cloud-business</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.ypbin</groupId>
+                <artifactId>ypbin-iot-cloud-access</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <!-- 非发布模块（architecture-tests / integration-tests）**不进 BOM**：
+                 它们只在构建期做门禁，没有任何运行期价值，下游也不应依赖。 -->
+        </dependencies>
+    </dependencyManagement>
+</project>

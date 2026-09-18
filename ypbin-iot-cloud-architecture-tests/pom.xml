@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>cn.ypbin</groupId>
+        <artifactId>ypbin-iot-cloud-dependencies</artifactId>
+        <version>${revision}</version>
+        <relativePath>../ypbin-iot-cloud-dependencies/pom.xml</relativePath>
+    </parent>
+
+    <artifactId>ypbin-iot-cloud-architecture-tests</artifactId>
+
+    <properties>
+        <!--
+          架构约束测试不发布：它只在构建期做门禁，没有任何运行期价值。
+          与根 pom 的 dev-only profile 配合，避免未签名产物混进上传包
+          （母仓 3.0.0 首发即因此 FAILED：maven.deploy.skip 对
+          central-publishing-maven-plugin 无效，必须先离开发布反应堆）。
+        -->
+        <maven.deploy.skip>true</maven.deploy.skip>
+        <gpg.skip>true</gpg.skip>
+    </properties>
+
+    <name>${project.artifactId}</name>
+    <description>架构约束测试（不发布）：分层依赖、编码铁律、源码规范、模块发布边界与规则有效性自检</description>
+
+    <dependencies>
+        <!--
+          分析对象：全部本仓模块的字节码。
+          必须把**每一个**模块都放进 classpath：ArchUnit 的 importPackages 只能看到
+          classpath 上的类，不在上面的模块会被**静默跳过** —— 规则看起来通过、实则从未检查过它们。
+        -->
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-iot-cloud-common</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-iot-cloud-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-iot-cloud-auth</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-iot-cloud-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-iot-cloud-openapi</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-iot-cloud-gateway</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-iot-cloud-business</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-iot-cloud-access</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- ArchUnit：字节码级架构断言（版本由父 pom 的 dependencyManagement 管理） -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

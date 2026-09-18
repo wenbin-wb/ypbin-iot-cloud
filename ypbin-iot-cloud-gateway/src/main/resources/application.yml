@@ -1,0 +1,16 @@
+# 部署单元① 网关（M0a 骨架）。
+#
+# 这里只有应用名与端口：路由、鉴权、租户上下文注入、剥离伪造头都在 P2 落地
+# （IOT-CLOUD-SPEC.md §4.1 / §4.4）。端口是 M0a 占位值，P2 起与本地五进程形态对齐。
+server:
+  port: 18080
+
+spring:
+  application:
+    name: ypbin-iot-cloud-gateway
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

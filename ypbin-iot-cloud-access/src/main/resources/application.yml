@@ -1,0 +1,16 @@
+# 部署单元③ 设备接入（M0a 骨架，有状态单元）。
+#
+# P0 不接 ypbin-iot-starter、不接 EMQX、不接数据库：只有应用名与端口。
+# 采集链路、租约领取/续约（默认 10s）与 self-fencing 状态机在 P4 落地（IOT-CLOUD-SPEC.md §3.1①）。
+server:
+  port: 18082
+
+spring:
+  application:
+    name: ypbin-iot-cloud-access
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
