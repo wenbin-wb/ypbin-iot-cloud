@@ -1,0 +1,38 @@
+/*
+ * Copyright (c) 2024-present ypbin-iot-cloud authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package cn.ypbin.iotcloud.api.lease;
+
+import jakarta.validation.constraints.NotBlank;
+import lombok.Getter;
+import lombok.Setter;
+
+/**
+ * access 节点注册请求：节点启动后先注册，再领取租户。
+ *
+ * @author wenbin
+ * @since 2026-09-18
+ */
+@Getter
+@Setter
+public class AccessNodeRegisterReq {
+
+    /** 节点唯一标识（同一节点重复注册视为幂等覆盖）。 */
+    @NotBlank(message = "节点标识不能为空")
+    private String accessNode;
+
+    /** 节点可承载的租户上限（为空表示不限，用于单节点全量模式）。 */
+    private Integer maxTenants;
+}

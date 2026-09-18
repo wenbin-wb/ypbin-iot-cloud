@@ -1,0 +1,4 @@
+# ypbin-iot-cloud 自动配置登记（Spring Boot 的 AutoConfiguration.imports 格式）
+# 注意：本文件只允许 FQCN 与 # 开头的注释；**不要**放 /* */ 许可证头——
+# Spring 的解析器不认它，会把 '/*' 当成类名去加载并导致启动失败。
+cn.ypbin.iotcloud.common.autoconfigure.InternalGuardAutoConfiguration

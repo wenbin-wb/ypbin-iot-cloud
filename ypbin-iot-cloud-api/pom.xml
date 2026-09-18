@@ -15,4 +15,31 @@
 
     <name>${project.artifactId}</name>
     <description>服务间契约库：Feign 接口 + DTO（M0a 仅占位；租约/归属契约见 IOT-CLOUD-SPEC.md §3.1⑦，P1 落地）</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-iot-cloud-common</artifactId>
+            <version>${revision}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-openfeign</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
 </project>

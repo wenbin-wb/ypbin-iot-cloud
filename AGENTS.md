@@ -65,7 +65,11 @@ tools/preflight.sh                          # 一次性总检
 ```
 
 **已接入（第一批）**：① ArchUnit（含规则有效性自检） ② 源码规范 ③ 模块发布边界 ④ spotless
-⑤ JaCoCo 覆盖率门禁（**M0a 阈值：指令 ≥ 0.30**） ⑥ CI `mvn -B -ntp clean verify`。
+⑤ JaCoCo 覆盖率门禁 ⑥ CI `mvn -B -ntp clean verify`。
+
+> 覆盖率阈值**保持 spec §9.1 第 9 项原值：指令 ≥ 0.80 / 分支 ≥ 0.64**（不放宽阈值）。
+> 曾一度想为「骨架期」把它降到 0.30，实测没必要：真正被度量的模块（有测试的）覆盖率高，
+> 没测试的模块会被 jacoco 静默跳过（见第 4 节第 1 条），所以 0.80 在 M0a 就能达成。
 
 **M0b 才接（现在只留脚本与登记，不要提前接）**：NullAway（`tools/check-nullaway.sh`）、
 依赖版本收敛（`-Pdep-convergence`）、配置元数据漂移、覆盖率快照（`tools/export-coverage.mjs`）、
@@ -76,9 +80,9 @@ SBOM（`-Psbom`）、preflight 全量。依据 spec §9.1 与 §10 的 M0b「13 
 ## 4. 已知限制（写在明处，别当已解决）
 
 1. **覆盖率门禁会「空转」**：实测（2026-09-18，`mvn -B -ntp -fae clean test`）只有
-   `ypbin-iot-cloud-common` 真的被度量（指令 13/13，`All coverage checks have been met.`）；
-   其余模块都跳过，原因两类：
-   - 「missing execution data file」= 模块没有测试（`api`/`auth`/`core`/`openapi`/三个部署单元）；
+   `ypbin-iot-cloud-common` 与 `ypbin-iot-cloud-api` 真的被度量（P1 落地后两者都已达 0.80/0.64，
+   `All coverage checks have been met.`）；其余模块都跳过，原因两类：
+   - 「missing execution data file」= 模块没有测试（`auth`/`core`/`openapi`/三个部署单元）；
    - 「missing classes directory」= 模块没有主源码（`architecture-tests` 只有测试源码）。
    即「有主源码但没有测试」的模块会**静默绕过**覆盖率门禁。M0b 的覆盖率快照门禁负责暴露它（spec §9.1 第 8 项）。
 2. **启动类不计覆盖率**：`**/*Application.class` 在 jacoco 配置里被显式排除

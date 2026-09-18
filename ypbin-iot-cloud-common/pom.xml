@@ -15,4 +15,53 @@
 
     <name>${project.artifactId}</name>
     <description>通用基础库：统一响应/异常/租户上下文/入站可信校验/工具（M0a 仅占位，P1 落地）</description>
+
+    <dependencies>
+        <!-- 统一响应 R / 错误码 / BusinessException / LogSanitizer（本仓复用 starter，不重造） -->
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-starter-core</artifactId>
+        </dependency>
+        <!--
+          Servlet MVC：**必须 optional**——本仓 gateway 是 WebFlux（响应式）应用，
+          若把 servlet 栈做成传递依赖，Boot 会把网关判定成 Servlet 应用并破坏它。
+          入站守卫的自动装配另有 @ConditionalOnClass + @ConditionalOnWebApplication(SERVLET) 双重护栏。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!--
+          仅测试作用域：用于证明「WebFlux（反应式）应用不会被装配入站守卫」——
+          本仓 gateway 正是 WebFlux 应用，若守卫配置泄漏过去，Boot 会把网关判成 Servlet 应用并破坏它。
+          业务运行时**不**引入 webflux。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
 </project>

@@ -24,6 +24,20 @@
           因此下面的 ypbin-iot-bom import 保持注释状态；access 在 P4 才接 iot-starter。
         -->
         <ypbin.iot.version>0.1.0-SNAPSHOT</ypbin.iot.version>
+
+        <!--
+          共享内核（cn.ypbin:ypbin-starter-*）的版本，**必须在这里显式重管**。
+
+          为什么不能省：本仓 parent = cn.ypbin:ypbin-starter-dependencies，而该父 pom 用它自己的
+          ${revision} 来管理 ypbin-starter-* 的版本。子项目一旦定义自己的 <revision>
+          （本仓 = 0.1.0-SNAPSHOT），继承下来的 management 就会把 ypbin-starter-core 之类
+          解析成 **0.1.0-SNAPSHOT**（子项目自己的版本）→ 干净环境直接「Could not find artifact」。
+          ypbin-iot-starter 之所以没踩到，是因为它不依赖任何 starter 运行时模块（只借父 pom 的插件与门禁 profile）。
+
+          规则：**本仓每新增一个 starter 依赖，都必须同时加进下面的 dependencyManagement**；
+          新增 starter 版本时只改这一个属性。
+        -->
+        <ypbin-starter.version>3.4.0</ypbin-starter.version>
     </properties>
 
     <dependencyManagement>
@@ -46,6 +60,13 @@
                 <scope>import</scope>
             </dependency>
             -->
+
+            <!-- ===== 共享内核（显式钉版本，理由见上方 ypbin-starter.version 注释）===== -->
+            <dependency>
+                <groupId>cn.ypbin</groupId>
+                <artifactId>ypbin-starter-core</artifactId>
+                <version>${ypbin-starter.version}</version>
+            </dependency>
 
             <!-- ===== 本仓模块（版本统一由 revision 控制）===== -->
             <dependency>

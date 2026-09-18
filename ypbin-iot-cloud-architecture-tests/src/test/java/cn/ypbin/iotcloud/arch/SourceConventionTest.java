@@ -179,7 +179,9 @@ class SourceConventionTest {
                 }
             }
             for (Path file : javaFiles(module.resolve("src/main/java"))) {
-                String content = read(file);
+                // 必须剥离注释与字面量后再匹配：否则 Javadoc 里形容「本类不标注 @AutoConfiguration」
+                // 这类说明文字会被当成真的注解（本规则曾因此误报一个 Feign 局部配置类）
+                String content = stripCommentsAndLiterals(read(file));
                 if (!AUTO_CONFIGURATION.matcher(content).find()) {
                     continue;
                 }
@@ -232,6 +234,15 @@ class SourceConventionTest {
     @DisplayName("SELF-03 自检样本必须覆盖全部四条规则与仓库根目录")
     void selfCheckMustCoverAllRules() {
         assertThat(AUTO_CONFIGURATION.matcher("@AutoConfiguration").find()).isTrue();
+        // 边界：只有出现在「有效代码」里的注解才算，注释/Javadoc/字符串里的提及不算
+        assertThat(AUTO_CONFIGURATION.matcher(
+                stripCommentsAndLiterals("// 本类不标注 @AutoConfiguration\n")).find()).isFalse();
+        assertThat(AUTO_CONFIGURATION.matcher(
+                stripCommentsAndLiterals("/** 说明：{@code @AutoConfiguration} 不适用 */\n")).find()).isFalse();
+        assertThat(AUTO_CONFIGURATION.matcher(
+                stripCommentsAndLiterals("String s = \"@AutoConfiguration\";\n")).find()).isFalse();
+        assertThat(AUTO_CONFIGURATION.matcher(stripCommentsAndLiterals(
+                "@AutoConfiguration\npublic class A {}\n")).find()).isTrue();
         assertThat(BEAN_ANNOTATION.matcher("    @Bean").matches()).isTrue();
         assertThat(CONDITIONAL_ON_MISSING_BEAN).isNotBlank();
         assertThat(REPO_ROOT.resolve(MODULE_PREFIX + "common")).isDirectory();
@@ -248,6 +259,79 @@ class SourceConventionTest {
                     .as("模块 %s 一个主源码文件都没扫到 —— 模块改名/挪位后必须同步 SOURCE_MODULES", module)
                     .isNotEmpty();
         }
+    }
+
+    /**
+     * 剥离注释与字符串/字符/文本块字面量，返回「有效代码」文本（保留换行以维持行号）。
+     *
+     * <p>铁律类违规只可能出现在有效代码中；注释与字符串里的 {@code cn.ypbin.*} 属合法内容
+     * （如 Javadoc 引用、{@code Class.forName("...")}）。文本块必须整体跳过：否则内容里的引号会
+     * 让剥离器与后续代码错位，其后的代码被整段吞掉，所有消费剥离文本的规则<b>静默失明</b>。</p>
+     *
+     * @param source 原始源码
+     * @return 去掉注释与字面量后的代码文本
+     */
+    static String stripCommentsAndLiterals(String source) {
+        StringBuilder out = new StringBuilder(source.length());
+        int i = 0;
+        int n = source.length();
+        while (i < n) {
+            char ch = source.charAt(i);
+            if (ch == '/' && i + 1 < n && source.charAt(i + 1) == '/') {
+                while (i < n && source.charAt(i) != '\n') {
+                    i++;
+                }
+            } else if (ch == '/' && i + 1 < n && source.charAt(i + 1) == '*') {
+                i += 2;
+                while (i + 1 < n && !(source.charAt(i) == '*' && source.charAt(i + 1) == '/')) {
+                    if (source.charAt(i) == '\n') {
+                        out.append('\n');
+                    }
+                    i++;
+                }
+                i = Math.min(i + 2, n);
+            } else if (ch == '"' && i + 2 < n && source.charAt(i + 1) == '"' && source.charAt(i + 2) == '"') {
+                // 文本块：整体跳过，避免奇数个引号导致后续代码被吞
+                i += 3;
+                while (i < n) {
+                    if (source.charAt(i) == '\\') {
+                        i += 2;
+                        continue;
+                    }
+                    if (source.charAt(i) == '"' && i + 2 < n
+                        && source.charAt(i + 1) == '"' && source.charAt(i + 2) == '"') {
+                        i += 3;
+                        break;
+                    }
+                    if (source.charAt(i) == '\n') {
+                        out.append('\n');
+                    }
+                    i++;
+                }
+            } else if (ch == '"' || ch == '\'') {
+                char quote = ch;
+                i++;
+                while (i < n) {
+                    char current = source.charAt(i);
+                    if (current == '\\') {
+                        i += 2;
+                        continue;
+                    }
+                    if (current == quote) {
+                        i++;
+                        break;
+                    }
+                    if (current == '\n') {
+                        out.append('\n');
+                    }
+                    i++;
+                }
+            } else {
+                out.append(ch);
+                i++;
+            }
+        }
+        return out.toString();
     }
 
     private static boolean isExemptLine(String line) {
