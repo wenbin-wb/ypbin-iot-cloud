@@ -32,12 +32,12 @@ const checkOnly = process.argv.includes('--check');
 const allowShrink = process.argv.includes('--allow-shrink');
 
 /**
- * 门禁阈值：与 pom 里 jacoco-check 的配置保持一致（改 pom 时同步这里）。
+ * 门禁阈值：与 `ypbin-iot-cloud-dependencies/pom.xml` 的 jacoco-check **必须一致**。
  *
- * M0a：只强制指令 >= 0.30（骨架几乎是空的，照 spec 的 0.80 必红）。
- * M0b：按 IOT-CLOUD-SPEC.md §9.1 第 9 项提到 指令 >= 0.80 / 分支 >= 0.64，两处必须同步改。
+ * 当前值 = spec §9.1 第 9 项的原值（指令 >= 0.80 / 分支 >= 0.64），与 pom 已同步；
+ * 本脚本尚未接入 CI/preflight（M0b 接线），接线时必须核对两者仍一致。
  */
-const GATE = { instruction: 0.30, branch: 0.64 };
+const GATE = { instruction: 0.80, branch: 0.64 };
 
 /** 从 jacoco.csv 聚合出「指令 / 分支」覆盖率（百分比，保留两位小数）。 */
 function coverageOf(csvPath) {
@@ -160,7 +160,7 @@ if (checkOnly) {
   const snapshot = {
     generatedBy: 'tools/export-coverage.mjs',
     gate: { instruction: GATE.instruction, branch: GATE.branch },
-    note: 'M0a 只强制指令覆盖率 >= 0.30；指令 0.80 / 分支 0.64 是 M0b 起的目标（与 pom 的 jacoco-check 同步改）。'
+    note: '门禁阈值为指令 >= 0.80 / 分支 >= 0.64（与 pom 的 jacoco-check 一致，见本文件头部的 GATE 说明）。'
       + '覆盖率存在执行波动（同一提交两次全量运行实测差 0.04~0.78pp），本文件只记录最近一次实测值，'
       + '不参与门禁判定；阈值由 pom 的 jacoco-check 强制执行。',
     excludedNoDataModules: withoutData,
