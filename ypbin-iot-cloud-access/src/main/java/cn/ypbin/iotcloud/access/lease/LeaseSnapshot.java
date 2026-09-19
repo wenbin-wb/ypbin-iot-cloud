@@ -16,6 +16,7 @@
 package cn.ypbin.iotcloud.access.lease;
 
 import cn.ypbin.iotcloud.api.lease.LeaseEpochRules;
+import cn.ypbin.iotcloud.api.lease.LeaseState;
 import java.time.LocalDateTime;
 
 /**
@@ -32,12 +33,17 @@ import java.time.LocalDateTime;
 public record LeaseSnapshot(LocalDateTime leaseExpireAt, long epoch) {
 
     /**
-     * 本地判定是否已过期。
+     * 本地判定本租约是否必须 self-fencing。
+     *
+     * <p>直接<b>复用契约的组合判据</b> {@link LeaseEpochRules#needsSelfFence(LeaseState, LocalDateTime, LocalDateTime)}
+     * 而不是自己拼「已过期」：本类里的快照按定义只存<b>有效持有</b>的租约（状态恒为 {@code ACTIVE}），
+     * 所以状态维度在这里恒为「有效」、判据退化成时间比较——但走同一个方法，
+     * 契约那句「self-fencing 必须用组合判据」才是可执行的（复核 D9 指出此前该方法在 main 里零调用）。</p>
      *
      * @param now 当前时刻
-     * @return 已过期返回 {@code true}
+     * @return 必须停采返回 {@code true}
      */
-    boolean expiredAt(LocalDateTime now) {
-        return LeaseEpochRules.isLeaseExpired(leaseExpireAt, now);
+    boolean mustSelfFence(LocalDateTime now) {
+        return LeaseEpochRules.needsSelfFence(LeaseState.ACTIVE, leaseExpireAt, now);
     }
 }

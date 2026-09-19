@@ -50,14 +50,26 @@ class BusinessStartupCheckerTest {
     }
 
     @Test
-    @DisplayName("租约有效期不大于续约周期 → 报错误（抖动即误判失效）")
+    @DisplayName("租约有效期不够长（未超过「周期 + 一次续约最坏耗时」）→ 报错误")
     void shouldReportErrorWhenTtlTooShort() {
         lease.setTtl(Duration.ofSeconds(5));
         lease.setExpectedRenewInterval(Duration.ofSeconds(10));
 
         BusinessStartupChecker checker = new BusinessStartupChecker(internal, lease);
 
-        assertThat(checker.errors()).singleElement().asString().contains("不大于预期续约周期");
+        assertThat(checker.errors()).singleElement().asString().contains("必须大于「预期续约周期");
+    }
+
+    @Test
+    @DisplayName("边界：ttl 恰好等于「周期 + 最坏耗时」也算不合法（判据是 >，不是 >=）")
+    void shouldReportErrorWhenTtlEqualsIntervalPlusWorstRequest() {
+        // 10s 周期 + (connect 1s + read 3s) = 14s；ttl=14s 必须被判不合法
+        lease.setTtl(Duration.ofSeconds(14));
+        lease.setExpectedRenewInterval(Duration.ofSeconds(10));
+
+        BusinessStartupChecker checker = new BusinessStartupChecker(internal, lease);
+
+        assertThat(checker.errors()).singleElement().asString().contains("一次续约最坏耗时(4000ms)");
     }
 
     @Test
@@ -71,14 +83,14 @@ class BusinessStartupCheckerTest {
     }
 
     @Test
-    @DisplayName("边界：ttl 恰好等于续约周期也算不合法（判定必须是 <=，不是 <）")
-    void shouldReportErrorWhenTtlEqualsInterval() {
-        lease.setTtl(Duration.ofSeconds(10));
+    @DisplayName("正常配置：ttl=30s > 10s+4s，无错误")
+    void shouldAcceptDefaultTtl() {
+        lease.setTtl(Duration.ofSeconds(30));
         lease.setExpectedRenewInterval(Duration.ofSeconds(10));
 
         BusinessStartupChecker checker = new BusinessStartupChecker(internal, lease);
 
-        assertThat(checker.errors()).singleElement().asString().contains("不大于预期续约周期");
+        assertThat(checker.errors()).isEmpty();
     }
 
     @Test

@@ -53,9 +53,10 @@
         </dependency>
         <!--
           必需，不是可选项：**Feign 响应里就有 R 信封**（含 LocalDateTime 的 timestamp）。
-          starter 的 Jackson 定制（时间格式、Long→String 等）在 starter-web 里；缺了它，
-          对端返回的 `timestamp: "2026-09-19 10:37:27"` 在客户端会解码失败
-          （实测：feign.codec.DecodeException，R<Void> 解不出来，导致注册握手直接失败）。
+          starter 的 Jackson 定制（时间格式、Long→String 等）在 **starter-json**，本模块是经
+          starter-web 把它带进来的（复核实测：同时移除 starter-web 与 starter-json 才会出现
+          `feign.codec.DecodeException: Cannot deserialize LocalDateTime from "2026-09-19 10:37:27"`，
+          注册握手直接失败）。所以这里引 starter-web 是「顺带拿到 json 定制 + 统一信封」。
         -->
         <dependency>
             <groupId>cn.ypbin</groupId>

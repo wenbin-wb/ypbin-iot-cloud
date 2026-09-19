@@ -41,7 +41,8 @@ public class AccessProperties {
      * 节点标识：租约归属的键。
      *
      * <p><b>必须非空</b>——为空会让所有副本注册成同一个节点，租约归属直接失效
-     * （{@code AccessStartupValidator} 在启动期就拒绝）。默认取容器/主机名，本地多开需显式区分。</p>
+     * （{@code AccessStartupValidator} 在启动期就拒绝）。默认值来自 {@code application.yml} 的
+     * {@code ${HOSTNAME:access-local}}（不是本类的字段默认值）；本地多开需显式区分。</p>
      */
     private String nodeId = "";
 
@@ -61,15 +62,19 @@ public class AccessProperties {
     private boolean startupHandshakeEnabled = true;
 
     /**
-     * 周期<b>重领</b>间隔（毫秒），默认 60s。
+     * 周期<b>重领</b>间隔（毫秒），默认 15s（= business 的失效扫描周期）。
      *
      * <p>为什么需要它：{@code acquire} 不只是「首次领取」——它是**接管的执行入口**（business 把
      * 待接管/已释放的租户分给调用的节点）。如果一个节点只在启动时领取一次，那么别的节点退出后留下的
      * 租户会停在「待接管」状态<b>永远没人接手</b>，§3.1① 的接管链路就断在最后一步。
      * 因此本节点定期重领：有富余容量时把孤儿租户接过来（契约保证 {@code acquire} 幂等、
      * 只续期不重复分配）。</p>
+     *
+     * <p>取值直接决定「节点退出 → 别的节点把它接过来」的最坏延迟：
+     * {@code ttl + 扫描周期 + 重领间隔}（默认 30 + 15 + 15 = 60s）。复核建议不要大于扫描周期——
+     * 重领是廉价且幂等的调用，没必要为省一次调用把接管延迟拉长。</p>
      */
-    private long acquireIntervalMs = 60_000L;
+    private long acquireIntervalMs = 15_000L;
 
     /**
      * 续约周期（毫秒），默认 10s（spec §3.1① 的默认值）。

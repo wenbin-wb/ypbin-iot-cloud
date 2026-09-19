@@ -60,6 +60,7 @@ business 用 **租约 + 失效检测 + 两阶段接管**保证「同一时刻只
 | 规则 | 内容 | 实现 |
 |---|---|---|
 | 快照准入 | 仅 `snapshot.epoch > local.epoch` 才可采用快照 | `LeaseEpochRules.shouldAdoptSnapshot` |
+| self-fencing 判据 | 状态失效 **或** 租约已过期，二者取或 | `LeaseEpochRules.needsSelfFence`（access 的 `LeaseSnapshot#mustSelfFence` **真的调用它**；快照按定义只存 ACTIVE，故状态维度恒有效、判据退化为时间比较） |
 | 事件应用 | 仅 `event.epoch > local.epoch` 才应用；相等或更旧**丢弃** | `LeaseEpochRules.shouldApplyEvent` |
 | 单调递增 | 台账变更与 `epoch + 1` **在同一事务**；到上限显式失败（不许回绕） | `LeaseEpochRules.nextEpoch` **只是纯函数**（算下一个值 + 上限校验）；「同事务」由调用方保证——M0a 无事务（见 ADR-0001 §2.1 的 M0b 必办） |
 | 对账判据 | **只用 epoch**（设备数在「改参数」「删一台又加一台」时不变，会假阴性） | spec §3.1③ |
@@ -112,8 +113,9 @@ business 用 **租约 + 失效检测 + 两阶段接管**保证「同一时刻只
 | 重试 | **显式 `Retryer.NEVER_RETRY`**：默认 `Retryer.Default` 是 5 次重试，单次续约最坏 ≈21.5s > 10s 周期，会把节点卡成失效；续约靠下一轮自然重发，需要重试的场景由上层做**有界**重试 | `LeaseFeignConfiguration` |
 | 超时/重试的宿主覆盖 | 两个 Bean 都是 `@ConditionalOnMissingBean`（`SearchStrategy.ALL`，宿主在祖先链任意位置定义即可覆盖）：**覆盖即自负「不得让单次续约跨过周期」的责任** | `LeaseFeignConfiguration` + 独立复核 §4 |
 | 启动期校验（服务端侧） | ✅ **P3 已落地**：business 启动时校验 `ypbin.lease.ttl > ypbin.lease.expected-renew-interval`（不满足记 ERROR），并在「未配内部凭证」「可分配租户为空」时各记一条 WARN —— 后者正是「租约链路在默认配置下空跑」这个坑 | `BusinessStartupChecker` |
-| 启动期校验（**客户端侧**，P4 必办） | ⏳ 未落地：access 接上 Feign 后，必须校验「单次续约最坏耗时（connect+read×重试）< 续约周期」，覆盖 `LeaseFeignConfiguration` 的宿主同样要过这道校验 | 待 P4 |
+| 启动期校验（**客户端侧**） | ✅ **P4 已落地**：access 启动时要求续约周期 ≥ 一次续约最坏耗时的 **2 倍**，且校验读的是**生效的** `Request.Options` Bean（宿主覆盖超时也会被算进去，不是只比常量）；`node-id` 为空、重领间隔 ≤ 0 同样拒绝启动 | `AccessStartupValidator` + `AccessStartupValidatorTest` |
 | **客户端必须有一致的 Jackson 配置** | `R` 信封带 `LocalDateTime timestamp`，服务端按 starter 的 `yyyy-MM-dd HH:mm:ss` 序列化；**客户端只依赖 `starter-core` 时用默认 ISO 反序列化 → `DecodeException`，注册握手直接失败**（P4 实测）。调用侧需引入带 starter Jackson 定制的模块（如 `ypbin-starter-web`） | `ypbin-iot-cloud-access/pom.xml` 的说明 + 计划 §10 |
+| **`acquire` 会给已持有租户续期** | 契约上 `acquire` 是幂等的「领取/续期」：对调用方**已有效持有**的租户会顺带延长到期时间（`LeaseService` 的 held 分支走续期），因此 access 的周期重领同时也在刷新自己的租约 | `LeaseService#acquire` + access 的周期重领 |
 | **服务端可被关闭**（`ypbin.lease.enabled=false`） | 关掉时 `LeaseService`/`InMemoryLeaseStore`/`LeaseExpiryScanner`/`InternalLeaseController` **全部不装配**，`/internal/lease/**` 不注册（请求得到「接口不存在」的信封；**此时不带令牌也是 404**，因为没有 handler、拦截器根本不执行——不要在关闭模式下把 401 当诊断依据） | 控制器 Javadoc + `BusinessWithoutLeaseContextTest` |
 | **调用方（P4 access）必办** | `register` 的任何非 `code=200`（含上面的 404）**必须当作启动失败**：本契约里 register 是「开始采集」的前置，失败即不得建链。把 404 当成可重试/参数错会让 fail-fast 落空 | 本条为 P4 硬要求 |
 | HTTP 200 信封的前提 | `BusinessException → HTTP 200 + R.code=401` 由 **`ypbin-starter-web` 的全局异常处理器**完成；`common` 只依赖 `starter-core` → **P3 起 business 必须显式引入 `ypbin-starter-web`**（版本已在 `-dependencies` 预管） | 独立复核 F8 |

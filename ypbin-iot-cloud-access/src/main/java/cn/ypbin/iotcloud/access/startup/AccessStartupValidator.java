@@ -17,11 +17,14 @@ package cn.ypbin.iotcloud.access.startup;
 
 import cn.ypbin.iotcloud.access.config.AccessProperties;
 import cn.ypbin.iotcloud.api.lease.config.LeaseFeignConfiguration;
+import cn.ypbin.starter.core.util.LogSanitizer;
+import feign.Request;
 import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -52,14 +55,17 @@ public class AccessStartupValidator implements InitializingBean {
     static final int SAFETY_FACTOR = 2;
 
     private final AccessProperties properties;
+    private final ObjectProvider<Request.Options> requestOptions;
 
     /**
      * 构造启动自检。
      *
-     * @param properties 本节点参数
+     * @param properties     本节点参数
+     * @param requestOptions 生效的 Feign 超时配置（<b>可被宿主覆盖</b>）
      */
-    public AccessStartupValidator(AccessProperties properties) {
+    public AccessStartupValidator(AccessProperties properties, ObjectProvider<Request.Options> requestOptions) {
         this.properties = properties;
+        this.requestOptions = requestOptions;
     }
 
     @Override
@@ -69,7 +75,8 @@ public class AccessStartupValidator implements InitializingBean {
             throw new IllegalStateException("access 启动自检未通过：" + String.join("；", issues));
         }
         log.info("access 启动自检通过：node={} renewIntervalMs={} 续约最坏耗时={}ms（要求倍数≥{}）",
-            properties.getNodeId(), properties.getRenewIntervalMs(), worstCaseMs(), SAFETY_FACTOR);
+            LogSanitizer.sanitize(properties.getNodeId()), properties.getRenewIntervalMs(), worstCaseMs(),
+            SAFETY_FACTOR);
     }
 
     /**
@@ -83,6 +90,11 @@ public class AccessStartupValidator implements InitializingBean {
             issues.add(AccessProperties.PREFIX
                 + ".node-id 不能为空：租约归属以节点标识为键，为空会让所有副本注册成同一个节点");
         }
+        if (properties.getAcquireIntervalMs() <= 0) {
+            issues.add(AccessProperties.PREFIX
+                + ".acquire-interval-ms 必须为正数（当前 " + properties.getAcquireIntervalMs()
+                + "）：为 0 会让每个调度 tick 都重领一次");
+        }
         long required = (long) worstCaseMs() * SAFETY_FACTOR;
         if (properties.getRenewIntervalMs() < required) {
             issues.add(AccessProperties.PREFIX + ".renew-interval-ms（" + properties.getRenewIntervalMs()
@@ -95,8 +107,19 @@ public class AccessStartupValidator implements InitializingBean {
         return issues;
     }
 
-    /** 一次续约的最坏耗时（毫秒）：连接超时 + 读超时（不重试，见 LeaseFeignConfiguration）。 */
+    /**
+     * 一次续约的最坏耗时（毫秒）：连接超时 + 读超时（不重试，见 {@code LeaseFeignConfiguration}）。
+     *
+     * <p>⚠️ 优先读<b>生效的</b> {@link Request.Options}：那两个 Bean 都是
+     * {@code @ConditionalOnMissingBean(SearchStrategy.ALL)}，宿主可以覆盖（例如把 read 调成 30s）。
+     * 只看契约常量会让本校验变成<b>假绿门禁</b>——复核 D5 实测过这一点。
+     * 主上下文里没有该 Bean 时才回落到契约常量（Feign 子上下文里的默认值就是这两个常量）。</p>
+     */
     private int worstCaseMs() {
+        Request.Options options = requestOptions.getIfAvailable();
+        if (options != null) {
+            return options.connectTimeoutMillis() + options.readTimeoutMillis();
+        }
         return LeaseFeignConfiguration.CONNECT_TIMEOUT_MS + LeaseFeignConfiguration.READ_TIMEOUT_MS;
     }
 }

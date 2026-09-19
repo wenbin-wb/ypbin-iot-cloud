@@ -29,6 +29,7 @@ import cn.ypbin.iotcloud.api.lease.LeaseRenewResp;
 import cn.ypbin.starter.core.exception.GlobalErrorCode;
 import cn.ypbin.starter.core.model.R;
 import cn.ypbin.starter.core.util.LogSanitizer;
+import feign.RetryableException;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -39,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -88,6 +90,17 @@ public class AccessLeaseManager {
     private final AtomicReference<LocalDateTime> lastAcquireAt = new AtomicReference<>();
 
     /**
+     * 是否已完成启动握手（register 成功）。
+     *
+     * <p>⚠️ 为什么需要它：{@code @Scheduled} 的第一次 tick 与 {@code ApplicationRunner}
+     * 的握手<b>没有先后保证</b>（复核实测 4/4 次启动都出现调度器抢跑）。抢跑会：污染
+     * {@code acquired} 指标、打出假的「接管孤儿租户」WARN、以及「节点未注册」的 ERROR，
+     * 还让「注册 → 领取 → 开始采集」的顺序变成偶然。P4b 接上真协议栈后这条路径会真的开 socket，
+     * 所以必须在握手完成前让重领闭嘴。</p>
+     */
+    private final AtomicBoolean registered = new AtomicBoolean(false);
+
+    /**
      * 构造租约状态机。
      *
      * @param leaseClient   business 侧的租约契约客户端（Feign）
@@ -125,6 +138,8 @@ public class AccessLeaseManager {
      */
     public void start() {
         registerOrFail();
+        // 必须在 acquireOrFail() **之前**记录：否则调度器若在这一瞬抢跑，会把「还没握手」误判为「到点重领」
+        lastAcquireAt.set(LocalDateTime.now());
         acquireOrFail();
         lastAcquireAt.set(LocalDateTime.now());
     }
@@ -161,6 +176,10 @@ public class AccessLeaseManager {
      * 契约保证 {@code acquire} 幂等（重复调用只续期、不重复分配），所以这里可以安全地周期性调用。</p>
      */
     private void refreshAssignmentsIfDue(LocalDateTime now) {
+        if (!registered.get()) {
+            // 握手还没完成：绝不抢跑（见 registered 字段的说明）
+            return;
+        }
         LocalDateTime last = lastAcquireAt.get();
         if (last != null && Duration.between(last, now).toMillis() < properties.getAcquireIntervalMs()) {
             return;
@@ -200,16 +219,15 @@ public class AccessLeaseManager {
         try {
             resp = leaseClient.register(req);
         } catch (RuntimeException ex) {
-            // 传输层失败（连接被拒/超时）也要给出可行动的消息：实测裸 Feign 异常只说
-            // "Connection refused executing POST ..."，看不出这是「注册握手失败 ⇒ 不得开始采集」
-            throw new IllegalStateException("access 启动失败：无法连接 business 完成节点注册（node="
-                + properties.getNodeId() + "）", ex);
+            throw new IllegalStateException("access 启动失败：" + transportDiagnosis("完成节点注册", ex)
+                + "（node=" + LogSanitizer.sanitize(properties.getNodeId()) + "）", ex);
         }
         if (resp == null || resp.getCode() != GlobalErrorCode.SUCCESS.getCode()) {
             throw new IllegalStateException("access 启动失败：注册节点未成功（node=" + properties.getNodeId()
                 + ", code=" + (resp == null ? "null" : resp.getCode())
                 + ", message=" + (resp == null ? "" : resp.getMessage()) + "）");
         }
+        registered.set(true);
         log.info("节点注册成功：node={} capacity={}", LogSanitizer.sanitize(properties.getNodeId()),
             properties.getCapacity() == null ? "不限（单节点全量）" : properties.getCapacity());
     }
@@ -220,16 +238,31 @@ public class AccessLeaseManager {
         try {
             resp = leaseClient.acquire(acquireRequest());
         } catch (RuntimeException ex) {
-            throw new IllegalStateException("access 启动失败：无法连接 business 领取租约（node="
-                + properties.getNodeId() + "）", ex);
+            throw new IllegalStateException("access 启动失败：" + transportDiagnosis("领取租约", ex)
+                + "（node=" + LogSanitizer.sanitize(properties.getNodeId()) + "）", ex);
         }
         if (resp == null || resp.getCode() != GlobalErrorCode.SUCCESS.getCode() || resp.getData() == null) {
             throw new IllegalStateException("access 启动失败：领取租约未成功（node=" + properties.getNodeId()
                 + ", code=" + (resp == null ? "null" : resp.getCode()) + "）");
         }
-        List<Long> tenantIds = applyAcquireResponse(resp.getData());
+        applyAcquireResponse(resp.getData());
         log.info("租户领取完成：node={} 持有租户={}", LogSanitizer.sanitize(properties.getNodeId()),
-            LogSanitizer.sanitize(tenantIds));
+            LogSanitizer.sanitize(holdings.keySet()));
+    }
+
+    /**
+     * 给启动失败的异常起一句能指向病因的话。
+     *
+     * <p>复核实测过一个误导：纯反序列化问题（{@code DecodeException}，客户端 Jackson 配置不一致）
+     * 被一律报成「无法连接 business」，排查方向直接跑偏。所以这里按异常类型分叉——
+     * 连接/超时类（{@code RetryableException}）说「无法连接」，其它带上异常类型并提示「不一定是连接问题」。</p>
+     */
+    private String transportDiagnosis(String action, RuntimeException ex) {
+        if (ex instanceof RetryableException) {
+            return "无法连接 business " + action + "（连接被拒或超时）";
+        }
+        return "调用 business " + action + " 失败（" + ex.getClass().getSimpleName()
+            + "，不一定是连接问题，请看原因）";
     }
 
     /** 领取请求（启动领取与周期重领共用）。 */
@@ -265,11 +298,11 @@ public class AccessLeaseManager {
      */
     private void selfFenceExpiredLocally(LocalDateTime now) {
         List<Long> expired = holdings.entrySet().stream()
-            .filter(entry -> entry.getValue().expiredAt(now))
+            .filter(entry -> entry.getValue().mustSelfFence(now))
             .map(Map.Entry::getKey)
             .toList();
         for (Long tenantId : expired) {
-            fenceLocally(tenantId, "本地租约已过期（未成功续约）");
+            fenceLocally(tenantId, "本地租约已过期（未成功续约）", true);
         }
     }
 
@@ -322,7 +355,7 @@ public class AccessLeaseManager {
         }
         for (Long tenantId : resp.getRevokedTenantIds()) {
             revoked.increment();
-            fenceLocally(tenantId, "business 判定该租户已失效/被接管");
+            fenceLocally(tenantId, "business 判定该租户已失效/被接管", false);
         }
         log.debug("续约完成：node={} 续约={} 撤销={} 本地持有={}",
             LogSanitizer.sanitize(properties.getNodeId()), resp.getRenewedLeases().size(),
@@ -337,10 +370,14 @@ public class AccessLeaseManager {
     }
 
     /** self-fencing 的唯一落地点：摘快照 + 断链停采。 */
-    private void fenceLocally(Long tenantId, String reason) {
+    private void fenceLocally(Long tenantId, String reason, boolean countAsSelfFence) {
         holdings.remove(tenantId);
         linkManager.fence(tenantId, reason);
-        selfFenced.increment();
+        if (countAsSelfFence) {
+            // 只有「本地过期导致的自 fencing」才计入 self_fenced；
+            // business 撤销的租户已经计入 revoked，两边都计会让指标无法区分两条路径（复核 D3）
+            selfFenced.increment();
+        }
         log.warn("租户已断链停采：tenantId={} reason={}", LogSanitizer.sanitize(tenantId),
             LogSanitizer.sanitize(reason));
     }

@@ -36,6 +36,7 @@ import cn.ypbin.iotcloud.api.lease.LeaseRenewReq;
 import cn.ypbin.iotcloud.api.lease.LeaseRenewResp;
 import cn.ypbin.iotcloud.api.lease.LeaseState;
 import cn.ypbin.starter.core.model.R;
+import feign.RetryableException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -125,23 +126,34 @@ class AccessLeaseManagerTest {
     }
 
     @Test
-    @DisplayName("注册时 business 不可达（连接被拒）→ 启动失败，且消息可行动（不是裸 Feign 异常）")
-    void startShouldFailWithActionableMessageWhenBusinessUnreachable() {
-        when(leaseClient.register(any()))
-            .thenThrow(new IllegalStateException("Connection refused executing POST /internal/lease/register"));
+    @DisplayName("注册时连接类异常（RetryableException）→ 消息说「无法连接」，且带节点名")
+    void startShouldSayUnreachableForRetryableException() {
+        when(leaseClient.register(any())).thenThrow(mock(RetryableException.class));
 
         assertThatThrownBy(() -> manager.start())
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("无法连接 business 完成节点注册")
-            .hasMessageContaining(NODE)
-            .hasRootCauseMessage("Connection refused executing POST /internal/lease/register");
+            .hasMessageContaining(NODE);
     }
 
     @Test
-    @DisplayName("领取时 business 不可达 → 启动失败，消息可行动")
-    void acquireShouldFailWithActionableMessageWhenBusinessUnreachable() {
+    @DisplayName("注册时非连接类异常（如解码失败）→ 不能说「无法连接」，要带上异常类型（复核 D7）")
+    void startShouldNotBlameConnectivityForNonTransportFailure() {
+        when(leaseClient.register(any()))
+            .thenThrow(new IllegalStateException("Cannot deserialize value of type LocalDateTime"));
+
+        assertThatThrownBy(() -> manager.start())
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("调用 business 完成节点注册 失败")
+            .hasMessageContaining("IllegalStateException")
+            .hasMessageContaining("不一定是连接问题");
+    }
+
+    @Test
+    @DisplayName("领取时连接类异常 → 启动失败，消息说「无法连接」")
+    void acquireShouldFailWithUnreachableMessageForRetryableException() {
         when(leaseClient.register(any())).thenReturn(R.ok());
-        when(leaseClient.acquire(any())).thenThrow(new IllegalStateException("read timed out"));
+        when(leaseClient.acquire(any())).thenThrow(mock(RetryableException.class));
 
         assertThatThrownBy(() -> manager.start())
             .isInstanceOf(IllegalStateException.class)
@@ -293,13 +305,32 @@ class AccessLeaseManagerTest {
     }
 
     @Test
-    @DisplayName("本地没有持有租户时：跳过续约（不制造空调用），但仍会按周期重领")
-    void emptyHoldingsShouldSkipRenewButStillRefresh() {
-        manager.renewAndSelfCheck();
+    @DisplayName("握手完成前：调度器抢跑也不做任何重领（复核实测过 4/4 次启动抢跑，会污染指标与日志）")
+    void refreshMustNotRunBeforeHandshake() {
+        // 未调用 start()（= 未注册）：即使时间大幅推进，也只跳过，不发 acquire/renew
+        manager.renewAndSelfCheck(LocalDateTime.now().plusSeconds(600));
 
         verify(leaseClient, times(0)).renew(any());
-        // 首次重领：lastAcquireAt 为空 → 立即执行一次（接管孤儿租户的入口）
+        verify(leaseClient, times(0)).acquire(any());
+        verify(leaseClient, times(0)).register(any());
+    }
+
+    @Test
+    @DisplayName("本地没有持有租户时：跳过续约（不制造空调用）；握手后到点才重领")
+    void emptyHoldingsShouldSkipRenewUntilRefreshDue() {
+        when(leaseClient.register(any())).thenReturn(R.ok());
+        when(leaseClient.acquire(any())).thenReturn(R.ok(acquireResp()));
+        manager.start();
+        properties.setAcquireIntervalMs(60_000L);
+
+        // 握手刚完成：未到重领间隔
+        manager.renewAndSelfCheck(LocalDateTime.now().plusSeconds(10));
+        verify(leaseClient, times(0)).renew(any());
         verify(leaseClient, times(1)).acquire(any());
+
+        // 到点：重领（仍然没有租户，但确实调了一次）
+        manager.renewAndSelfCheck(LocalDateTime.now().plusSeconds(70));
+        verify(leaseClient, times(2)).acquire(any());
     }
 
     @Test
@@ -374,6 +405,24 @@ class AccessLeaseManagerTest {
         assertThat(meterRegistry.get("iotcloud.lease.node_fenced").counter().count()).isEqualTo(1.0d);
     }
 
+    @Test
+    @DisplayName("nodeFenced 后重新注册成功但领取失败 → 保持停采、不抛（复核 D11 指出的覆盖缺口）")
+    void reRegisterOkButAcquireFailureShouldKeepNodeFenced() {
+        startWith(TENANT_A);
+        LeaseRenewResp fenced = new LeaseRenewResp();
+        fenced.setNodeFenced(true);
+        when(leaseClient.renew(any())).thenReturn(R.ok(fenced));
+        when(leaseClient.register(any())).thenReturn(R.ok());
+        // 重新注册成功，但领取失败
+        when(leaseClient.acquire(any())).thenReturn(R.fail(500, "内部错误"));
+
+        manager.renewAndSelfCheck();
+
+        assertThat(linkManager.collectingTenants()).isEmpty();
+        assertThat(manager.heldTenants()).isEmpty();
+        assertThat(meterRegistry.get("iotcloud.lease.node_fenced").counter().count()).isEqualTo(1.0d);
+    }
+
     /** 常见前置：注册 + 领取给定租户，并让注册/领取返回成功。 */
     private void startWith(Long... tenantIds) {
         when(leaseClient.register(any())).thenReturn(R.ok());
@@ -431,7 +480,7 @@ class AccessLeaseManagerTest {
     void snapshotShouldUseContractRules() {
         LocalDateTime now = LocalDateTime.now();
 
-        assertThat(new LeaseSnapshot(now.plusSeconds(1), 1L).expiredAt(now)).isFalse();
-        assertThat(new LeaseSnapshot(now.minusSeconds(1), 1L).expiredAt(now)).isTrue();
+        assertThat(new LeaseSnapshot(now.plusSeconds(1), 1L).mustSelfFence(now)).isFalse();
+        assertThat(new LeaseSnapshot(now.minusSeconds(1), 1L).mustSelfFence(now)).isTrue();
     }
 }

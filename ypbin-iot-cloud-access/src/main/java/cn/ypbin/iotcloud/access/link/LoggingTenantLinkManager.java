@@ -20,7 +20,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
 
 /**
  * M0a 的链路管理实现：<b>只记录状态 + 打日志，不真的建链</b>。
@@ -29,10 +28,14 @@ import org.springframework.stereotype.Component;
  * 这不是占位符糊弄：self-fencing 的<b>可观测与可断言</b>部分（谁在采、谁必须停、停了没有）现在就是完整的，
  * P4b 接上 iot-starter 时替换本实现即可，判定逻辑（{@code AccessLeaseManager}）不用改。</p>
  *
+ * <p>⚠️ 本类<b>不是</b> {@code @Component}：它由 {@code AccessLeaseConfiguration} 以
+ * {@code @Bean @ConditionalOnMissingBean} 装配，这样「宿主提供自己的实现」才真的成立——
+ * 无条件 {@code @Component} + 宿主再定义一个 {@code TenantLinkManager} bean 会直接
+ * {@code NoUniqueBeanDefinitionException}（复核 D8）。</p>
+ *
  * @author wenbin
  * @since 2026-09-19
  */
-@Component
 public class LoggingTenantLinkManager implements TenantLinkManager {
 
     private static final Logger log = LoggerFactory.getLogger(LoggingTenantLinkManager.class);

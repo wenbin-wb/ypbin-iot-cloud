@@ -70,6 +70,9 @@ class AccessContextTest {
     void contextShouldStartWithAllBeansWired() {
         assertThat(accessProperties.getNodeId()).isEqualTo("access-context-test");
         assertThat(accessProperties.isStartupHandshakeEnabled()).isFalse();
+        // yml 与属性默认值必须一致（复核指出这对值此前没有门禁）
+        assertThat(accessProperties.getRenewIntervalMs()).isEqualTo(10_000L);
+        assertThat(accessProperties.getAcquireIntervalMs()).isEqualTo(15_000L);
         assertThat(leaseManager.heldTenants()).isEmpty();
         assertThat(linkManager.collectingTenants()).isEmpty();
         assertThat(meterRegistry.find("iotcloud.lease.held").gauge()).isNotNull();

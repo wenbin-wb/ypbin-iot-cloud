@@ -1,0 +1,4 @@
+# ypbin-iot-cloud access 自动配置登记
+# 本类必须是自动配置：TenantLinkManager 的 @ConditionalOnMissingBean 替换缝依赖
+# 「自动配置晚于用户 bean」这个顺序保证（写成普通 @Configuration 会变成假缝，复核 D8）。
+cn.ypbin.iotcloud.access.config.AccessLeaseConfiguration
