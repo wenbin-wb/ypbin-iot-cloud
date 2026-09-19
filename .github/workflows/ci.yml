@@ -40,7 +40,7 @@ jobs:
       # `if: always()` 是有意的：若前面的步骤失败（例如构建没跑到测试），这里也必须说出来，
       # 而不是让归档步骤静默地上传一个空产物。
       #
-      # 「既有主源码又有测试数据」的模块（2026-09-18 实测）：common、api、gateway（P2 起有 8 个用例）。
+      # 「既有主源码又有测试数据」的模块（2026-09-18 实测）：common、api、gateway（P2.1 起 20 个用例）。
       # 其余模块：auth/core/openapi/business/access → 「missing execution data file」（没有测试）；
       # architecture-tests → 「missing classes directory」（没有主源码）；两个 pom-only 模块不跑 test 阶段。
       # 因此断言取 >= 1：它的作用是抓「测试没跑 / 报告被 clean 删掉」，而不是锁定具体数字

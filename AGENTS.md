@@ -82,9 +82,9 @@ SBOM（`-Psbom`）、preflight 全量。依据 spec §9.1 与 §10 的 M0b「13 
 ## 4. 已知限制（写在明处，别当已解决）
 
 1. **覆盖率门禁会「空转」**：实测（2026-09-18，`mvn -B -ntp -fae clean test`）只有
-   `ypbin-iot-cloud-common` 与 `ypbin-iot-cloud-api` 真的被度量（P1 落地后两者都已达 0.80/0.64，
-   `All coverage checks have been met.`）；其余模块都跳过，原因两类：
-   - 「missing execution data file」= 模块没有测试（`auth`/`core`/`openapi`/三个部署单元）；
+   `ypbin-iot-cloud-common`、`ypbin-iot-cloud-api` 与 `ypbin-iot-cloud-gateway`（P2 起有 20 个用例）
+   真的被度量（三者均 `All coverage checks have been met.`）；其余模块都跳过，原因两类：
+   - 「missing execution data file」= 模块没有测试（`auth`/`core`/`openapi`/`business`/`access`）；
    - 「missing classes directory」= 模块没有主源码（`architecture-tests` 只有测试源码）。
    即「有主源码但没有测试」的模块会**静默绕过**覆盖率门禁。M0b 的覆盖率快照门禁负责暴露它（spec §9.1 第 8 项）。
 2. **启动类不计覆盖率**：`**/*Application.class` 在 jacoco 配置里被显式排除

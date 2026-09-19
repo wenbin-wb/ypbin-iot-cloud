@@ -19,6 +19,7 @@ import cn.ypbin.starter.gateway.autoconfigure.GatewayProperties;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
@@ -37,6 +38,8 @@ import org.springframework.stereotype.Component;
  * @since 2026-09-18
  */
 @Component
+@ConditionalOnProperty(prefix = "ypbin.gateway", name = "enabled", havingValue = "true",
+    matchIfMissing = true)
 public class GatewaySigningValidator {
 
     private static final Logger log = LoggerFactory.getLogger(GatewaySigningValidator.class);

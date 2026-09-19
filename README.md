@@ -63,19 +63,19 @@ ypbin-iot-cloud/
 | 6 | 依赖版本收敛 | `mvn -Pdep-convergence validate` | ⏳ M0b |
 | 7 | 配置元数据漂移 | `node tools/export-config-metadata.mjs --check` | ⏳ M0b（脚本待移植） |
 | 8 | 覆盖率快照（仅模块集合） | `node tools/export-coverage.mjs --check` | ⏳ M0b（脚本已就位，快照未生成） |
-| 9 | 覆盖率门禁 | `mvn clean verify` | ✅ 已接入（**M0a 阈值：指令 ≥ 0.30**） |
+| 9 | 覆盖率门禁 | `mvn clean verify` | ✅ 已接入（**指令 ≥ 0.80 / 分支 ≥ 0.64**，与 spec §9.1 第 9 项一致） |
 | 10 | 集成测试 | `mvn -Pit verify` | ⏳ M0a 只有占位 IT，P5 才有真实场景 |
 | 11 | 供应链 SBOM | `mvn -Psbom verify -DskipTests` | ⏳ M0b |
 | 12 | 代码风格 | `mvn spotless:check`（已绑 `process-test-classes`，`verify` 会带上） | ✅ 已接入 |
 | 13 | 发布前总检 | `tools/preflight.sh` | ✅ 已就位（只跑 M0a 已接线的门禁） |
 
-> **阈值为什么是 0.30 而不是 spec 的 0.80**：骨架几乎是空的，照 0.80 必然全红。
-> **M0b 起必须提到指令 ≥ 0.80 / 分支 ≥ 0.64**，届时同步改
-> `ypbin-iot-cloud-dependencies/pom.xml` 的 `jacoco-check` 与 `tools/export-coverage.mjs` 的 `GATE`。
+> **阈值为何不放宽**：保持 spec §9.1 第 9 项原值（指令 ≥ 0.80 / 分支 ≥ 0.64）。骨架期之所以能达成，
+> 是因为门禁只度量「有测试的模块」——**不要**为此把阈值调低（那会让门禁失去意义）。
 >
-> **第 9 项在 M0a 的实际覆盖面（实测，2026-09-18）**：`mvn -B -ntp -fae clean test` 下只有
-> `ypbin-iot-cloud-common` 真的被度量并通过（指令 13/13，`All coverage checks have been met.`）；
-> 其余模块 JaCoCo 以「missing execution data file」（没有测试）或「missing classes directory」
+> **第 9 项的实际覆盖面（实测，2026-09-18 → P2.1）**：`mvn -B -ntp -fae clean verify` 下
+> `ypbin-iot-cloud-common`、`ypbin-iot-cloud-api`、`ypbin-iot-cloud-gateway` 被度量并通过
+> （均 `All coverage checks have been met.`）；其余模块 JaCoCo 以「missing execution data file」
+> （没有测试：`auth`/`core`/`openapi`/`business`/`access`）或「missing classes directory」
 > （`architecture-tests` 没有主源码）**跳过** —— 也就是「有主源码但没测试」的模块会**静默绕过**
 > 覆盖率门禁。这是已知限制，M0b 的覆盖率快照门禁（第 8 项）负责把它暴露出来。
 

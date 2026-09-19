@@ -83,7 +83,10 @@ class GatewayConfigBindingTest {
         assertThat(gatewayProperties.getAuth().getExcludePaths())
             .isNotEmpty()
             .anyMatch(path -> path.startsWith("/actuator/health"))
-            .noneMatch(path -> path.equals("/actuator/**"));
+            .noneMatch(path -> path.equals("/actuator/**"))
+            // 显式写 exclude-paths 会整体替换 starter 默认列表：这些默认项必须被抄回来，否则会静默变 401
+            .contains("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html",
+                "/business/actuator/health", "/access/actuator/health");
     }
 
     @Test

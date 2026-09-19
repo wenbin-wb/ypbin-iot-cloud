@@ -17,6 +17,7 @@ package cn.ypbin.iotcloud.gateway.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import cn.ypbin.iotcloud.gateway.GatewayApplication;
 import cn.ypbin.starter.gateway.autoconfigure.GatewayAuthMissingProviderAutoConfiguration;
 import cn.ypbin.starter.gateway.autoconfigure.GatewayAutoConfiguration;
 import cn.ypbin.starter.gateway.filter.GatewayAuthGlobalFilter;
@@ -55,6 +56,24 @@ class GatewayAuthProviderPresenceTest {
     @DisplayName("提供 Provider 时，鉴权过滤器必须真的被注册（否则就是配了鉴权却全放行）")
     void authFilterMustBeRegisteredWhenProviderPresent() {
         runner.withUserConfiguration(PlatformGatewayAuthProvider.class)
+            .run(context -> {
+                assertThat(context).hasSingleBean(PlatformGatewayAuthProvider.class);
+                assertThat(context).hasSingleBean(GatewayAuthGlobalFilter.class);
+            });
+    }
+
+    @Test
+    @DisplayName("以**真实应用类**为扫描根时，Provider 仍必须在扫描范围内（否则运行期照样 fail-open）")
+    void providerMustBeVisibleFromApplicationScanRoot() {
+        // 上一条用例显式注册了 Provider，覆盖不到「Provider 被挪出扫描范围 / 扫描根被改」这种形态：
+        // 独立复核实测——把 @SpringBootApplication 的 scanBasePackages 改到别的包，显式注册版门禁仍全绿，
+        // 而真进程启动会出现 starter 的 fail-open WARN、无令牌请求被直接转发到下游。
+        // 因此这里直接用真实应用类当扫描根，让「扫描可见性」本身成为被断言的对象。
+        new ReactiveWebApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(GatewayAutoConfiguration.class,
+                GatewayAuthMissingProviderAutoConfiguration.class))
+            .withPropertyValues("ypbin.gateway.auth.enabled=true")
+            .withUserConfiguration(GatewayApplication.class)
             .run(context -> {
                 assertThat(context).hasSingleBean(PlatformGatewayAuthProvider.class);
                 assertThat(context).hasSingleBean(GatewayAuthGlobalFilter.class);
