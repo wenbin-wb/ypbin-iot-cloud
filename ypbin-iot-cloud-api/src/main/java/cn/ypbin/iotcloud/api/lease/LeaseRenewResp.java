@@ -15,6 +15,7 @@
  */
 package cn.ypbin.iotcloud.api.lease;
 
+import jakarta.validation.Valid;
 import java.util.List;
 import lombok.Getter;
 import lombok.Setter;
@@ -39,7 +40,13 @@ import lombok.Setter;
 @Setter
 public class LeaseRenewResp {
 
-    /** 续约成功的租户及其新到期时间（逐租户回执，见 {@link LeaseRenewAck}）。 */
+    /**
+     * 续约成功的租户及其新到期时间（逐租户回执，见 {@link LeaseRenewAck}）。
+     *
+     * <p>{@code @Valid} 让 {@link LeaseRenewAck} 上的约束<b>可达</b>：business 若对自己的响应做校验，
+     * 漏填 ack 字段会被立即发现，而不是让节点静默地不更新到期时间。</p>
+     */
+    @Valid
     private List<LeaseRenewAck> renewedLeases = List.of();
 
     /** 已失效/已被接管的租户 ID —— 节点必须对它们 self-fencing（断链 + 停采）。 */

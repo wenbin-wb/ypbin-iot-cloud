@@ -200,7 +200,13 @@ class SourceConventionTest {
                     }
                 } catch (ClassNotFoundException e) {
                     violations.add(REPO_ROOT.relativize(imports) + ":" + (index + 1)
-                        + " -> " + line + " 在 classpath 上不存在（错拼的类型名会让启动期才失败）");
+                        + " -> " + line + " 在 classpath 上不存在（错拼的类型名会让启动期才失败）；"
+                        + "若该模块确实存在，请检查 architecture-tests 的依赖是否漏了它");
+                } catch (LinkageError e) {
+                    // 类在，但它的父类/依赖不在（例如模块没被加进 arch-tests 的 classpath）
+                    violations.add(REPO_ROOT.relativize(imports) + ":" + (index + 1)
+                        + " -> " + line + " 无法链接（" + e.getClass().getSimpleName()
+                        + "）：多半是 architecture-tests 缺该模块依赖，而不是类型名写错");
                 }
             }
         }
@@ -239,6 +245,10 @@ class SourceConventionTest {
      *
      * <p>约定：守卫的凭证比较必须写在守卫自己里（`MessageDigest.isEqual` 就在本文件内），
      * 这样安全关键点始终可见可审；若将来把比较抽到 helper，本规则与本注释须同步更新。</p>
+     *
+     * <p><b>已知覆盖边界</b>：谓词只识别 {@code HandlerInterceptor}/{@code preHandle} 型守卫；
+     * 若将来新增 <b>Filter 型</b>入站守卫，需要同步扩展本谓词（否则 Filter 型不会被扫到，
+     * 而 {@code scanned >= 1} 又不会触发空跑自检）。</p>
      *
      * @param strippedCode 已剥离注释与字面量的源码
      * @return 是入站守卫源码时返回 {@code true}
