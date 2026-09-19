@@ -17,16 +17,13 @@ package cn.ypbin.iotcloud.gateway.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import cn.ypbin.starter.gateway.auth.GatewayAuthProvider;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.List;
-import java.util.stream.Stream;
+import cn.ypbin.starter.gateway.autoconfigure.GatewayAuthMissingProviderAutoConfiguration;
+import cn.ypbin.starter.gateway.autoconfigure.GatewayAutoConfiguration;
+import cn.ypbin.starter.gateway.filter.GatewayAuthGlobalFilter;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.test.context.runner.ReactiveWebApplicationContextRunner;
 
 /**
  * 「网关必须自带认证器」的门禁。
@@ -41,47 +38,35 @@ import org.springframework.stereotype.Component;
  */
 class GatewayAuthProviderPresenceTest {
 
-    private static final Path MAIN_SOURCES = Path.of("src/main/java");
+    /**
+     * <b>运行期</b>门禁：开启鉴权时，容器里必须真的注册出 {@link GatewayAuthGlobalFilter}。
+     *
+     * <p>为什么不按源码文本匹配 Provider：那只是代理断言。独立复核实测——给 Provider 加上
+     * {@code @Profile("never-active")}（仍保留 {@code @Component}）后，文本门禁<b>照样全绿</b>，
+     * 而运行期鉴权过滤器个数变成 0（fail-open 复活）。只有真的把上下文跑起来，才能守住这个洞。</p>
+     */
+    private final ReactiveWebApplicationContextRunner runner =
+        new ReactiveWebApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(GatewayAutoConfiguration.class,
+                GatewayAuthMissingProviderAutoConfiguration.class))
+            .withPropertyValues("ypbin.gateway.auth.enabled=true");
 
     @Test
-    @DisplayName("gateway 模块必须声明一个 @Component 的 GatewayAuthProvider 实现")
-    void gatewayMustDeclareAuthProviderComponent() throws IOException {
-        assertThat(Files.isDirectory(MAIN_SOURCES))
-            .as("测试从模块根目录运行，找不到 src/main/java 说明工作目录不对")
-            .isTrue();
-
-        List<Class<?>> providers;
-        try (Stream<Path> files = Files.walk(MAIN_SOURCES)) {
-            providers = files.filter(path -> path.toString().endsWith(".java"))
-                .filter(this::implementsGatewayAuthProvider)
-                .map(this::load)
-                .toList();
-        }
-        assertThat(providers)
-            .as("没有 GatewayAuthProvider 时 starter 会 fail-open（只打 WARN 且不注册鉴权过滤器）")
-            .isNotEmpty();
-        assertThat(providers)
-            .as("Provider 必须能被 Spring 扫描到（@Component），否则等于没有")
-            .allMatch(type -> type.isAnnotationPresent(Component.class));
+    @DisplayName("提供 Provider 时，鉴权过滤器必须真的被注册（否则就是配了鉴权却全放行）")
+    void authFilterMustBeRegisteredWhenProviderPresent() {
+        runner.withUserConfiguration(PlatformGatewayAuthProvider.class)
+            .run(context -> {
+                assertThat(context).hasSingleBean(PlatformGatewayAuthProvider.class);
+                assertThat(context).hasSingleBean(GatewayAuthGlobalFilter.class);
+            });
     }
 
-    private boolean implementsGatewayAuthProvider(Path path) {
-        try {
-            return Files.readString(path, StandardCharsets.UTF_8)
-                .contains("implements GatewayAuthProvider");
-        } catch (IOException e) {
-            throw new IllegalStateException("读取源码失败：" + path, e);
-        }
-    }
-
-    private Class<?> load(Path path) {
-        String relative = MAIN_SOURCES.relativize(path).toString();
-        String fqcn = relative.substring(0, relative.length() - ".java".length())
-            .replace(java.io.File.separatorChar, '.');
-        try {
-            return Class.forName(fqcn, false, Thread.currentThread().getContextClassLoader());
-        } catch (ClassNotFoundException e) {
-            throw new IllegalStateException("加载失败：" + fqcn, e);
-        }
+    @Test
+    @DisplayName("没有 Provider 时过滤器确实不被注册（这就是 fail-open，本仓靠上面那条门禁守住）")
+    void authFilterIsNotRegisteredWithoutProvider() {
+        runner.run(context -> {
+            assertThat(context).doesNotHaveBean(PlatformGatewayAuthProvider.class);
+            assertThat(context).doesNotHaveBean(GatewayAuthGlobalFilter.class);
+        });
     }
 }

@@ -40,11 +40,9 @@ jobs:
       # `if: always()` 是有意的：若前面的步骤失败（例如构建没跑到测试），这里也必须说出来，
       # 而不是让归档步骤静默地上传一个空产物。
       #
-      # 期望值 2 = M0a 阶段「既有主源码又有测试数据」的模块数：
-      #   ypbin-iot-cloud-common（CloudConstants 有用例）
-      # 其余模块的实测结果（2026-09-18）：api/auth/core/openapi/gateway/business/access →
-      # 「missing execution data file」（没有测试）；architecture-tests → 「missing classes directory」
-      # （没有主源码）；两个 pom-only 模块不跑 test 阶段。
+      # 「既有主源码又有测试数据」的模块（2026-09-18 实测）：common、api、gateway（P2 起有 8 个用例）。
+      # 其余模块：auth/core/openapi/business/access → 「missing execution data file」（没有测试）；
+      # architecture-tests → 「missing classes directory」（没有主源码）；两个 pom-only 模块不跑 test 阶段。
       # 因此断言取 >= 1：它的作用是抓「测试没跑 / 报告被 clean 删掉」，而不是锁定具体数字
       # （M0b 新增有测试的模块后数字会变大，断言不应因此报错）。
       - name: 归档前校验覆盖率报告存在

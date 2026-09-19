@@ -17,6 +17,7 @@ package cn.ypbin.iotcloud.gateway.auth;
 
 import cn.ypbin.starter.gateway.auth.GatewayAuthProvider;
 import cn.ypbin.starter.gateway.auth.GatewayAuthResult;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -49,14 +50,22 @@ public class PlatformGatewayAuthProvider implements GatewayAuthProvider {
 
     private static final Logger log = LoggerFactory.getLogger(PlatformGatewayAuthProvider.class);
 
+    /** 避免每个带令牌的请求都打一条 WARN 把日志刷爆（只提示一次，其余降到 debug）。 */
+    private final AtomicBoolean tokenRejectionLogged = new AtomicBoolean(false);
+
     @Override
     public Mono<GatewayAuthResult> authenticate(ServerWebExchange exchange) {
         String authorization = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
         if (authorization == null || authorization.isBlank()) {
             return Mono.just(GatewayAuthResult.failure("未携带访问令牌"));
         }
-        log.warn("网关收到访问令牌，但 M0a 骨架尚未接入认证服务，按未认证拒绝；M0b 将落地令牌校验：path={}",
-            exchange.getRequest().getURI().getPath());
+        if (tokenRejectionLogged.compareAndSet(false, true)) {
+            log.warn("网关收到访问令牌，但 M0a 骨架尚未接入认证服务，按未认证拒绝；"
+                + "M0b 将落地令牌校验（本条每个实例只提示一次，后续同因拒绝降为 debug）");
+        } else {
+            log.debug("M0a 尚未接入认证服务，按未认证拒绝：path={}",
+                exchange.getRequest().getURI().getPath());
+        }
         return Mono.just(GatewayAuthResult.failure("认证服务尚未接入（M0a 骨架），请等待 M0b"));
     }
 }

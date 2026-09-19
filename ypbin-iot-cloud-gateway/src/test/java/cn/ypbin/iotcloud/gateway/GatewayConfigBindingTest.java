@@ -25,6 +25,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.bind.PropertySourcesPlaceholdersResolver;
 import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.core.env.MutablePropertySources;
@@ -58,7 +59,9 @@ class GatewayConfigBindingTest {
         assertThat(sources).as("application.yml 必须能被加载").isNotEmpty();
         MutablePropertySources propertySources = new MutablePropertySources();
         sources.forEach(propertySources::addLast);
-        binder = new Binder(ConfigurationPropertySources.from(propertySources));
+        // 带占位符解析器：否则绑出来的是字面量 "${GATEWAY_SIGN_TOKEN:}"，环境变量名写错也发现不了
+        binder = new Binder(ConfigurationPropertySources.from(propertySources),
+            new PropertySourcesPlaceholdersResolver(propertySources));
         gatewayProperties = binder.bind("ypbin.gateway", Bindable.of(GatewayProperties.class))
             .orElseThrow(() -> new IllegalStateException("无法绑定 ypbin.gateway 配置"));
     }
@@ -84,11 +87,26 @@ class GatewayConfigBindingTest {
     }
 
     @Test
-    @DisplayName("M0a 静态发现：至少配了一条路由且 uri 非空")
+    @DisplayName("M0a 静态发现：两条路由（business/access）都要有 uri 与 StripPrefix")
     void routesMustBeConfiguredStatically() {
-        String businessUri = binder
-            .bind("spring.cloud.gateway.server.webflux.routes[0].uri", Bindable.of(String.class))
+        assertThat(route("routes[0].id")).as("第一条路由应是 business").isEqualTo("business");
+        assertThat(route("routes[1].id")).as("第二条路由应是 access").isEqualTo("access");
+        assertThat(route("routes[0].uri")).isNotBlank();
+        assertThat(route("routes[1].uri")).isNotBlank();
+        assertThat(route("routes[0].filters[0]")).as("URL 第一段是服务短名，必须剥离")
+            .isEqualTo("StripPrefix=1");
+        assertThat(route("routes[1].filters[0]")).isEqualTo("StripPrefix=1");
+    }
+
+    @Test
+    @DisplayName("签发标记支持环境变量注入；未注入时解析为空（由 GatewaySigningValidator 显著告警）")
+    void trustedSourceTokenMustResolveFromEnvironment() {
+        assertThat(binder.bind("ypbin.gateway.auth.trusted-source-token", Bindable.of(String.class))
+            .orElse("x")).as("默认值应为空串（占位符 ${GATEWAY_SIGN_TOKEN:}）").isEmpty();
+    }
+
+    private String route(String suffix) {
+        return binder.bind("spring.cloud.gateway.server.webflux." + suffix, Bindable.of(String.class))
             .orElse("");
-        assertThat(businessUri).as("M0a 关掉注册中心，路由必须显式配置").isNotBlank();
     }
 }

@@ -46,12 +46,19 @@ ypbin:
         - X-Gateway-Signed
     auth:
       enabled: true
-      # 放行路径：只放健康探针与 API 文档；/actuator/** 其余端点（env/heapdump/shutdown）不得暴露
+      # ⚠️ 显式写 exclude-paths 会**整体替换** starter 的默认放行列表
+      # （starter 默认含 /actuator/health、/actuator/info、/v3/api-docs/**、/swagger-ui/** 等），
+      # 所以这里必须把仍需要的默认项显式抄回来，否则文档路径会被静默改成需要鉴权（实测返回 401）。
+      # 只放行健康探针与文档；/actuator/** 其余端点（env/heapdump/shutdown）明确不放行。
       exclude-paths:
         - /actuator/health
         - /actuator/health/**
         - /actuator/info
+        - /v3/api-docs/**
+        - /swagger-ui/**
+        - /swagger-ui.html
         - /business/actuator/health
+        - /access/actuator/health
       # 与各下游的 trusted-source-token 一致（部署时经环境变量注入；为空表示不签发来源标记）
       trusted-source-token: ${GATEWAY_SIGN_TOKEN:}
       trusted-source-header: X-Gateway-Signed

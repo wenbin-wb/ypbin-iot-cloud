@@ -59,6 +59,14 @@ class PlatformGatewayAuthProviderTest {
     }
 
     @Test
+    @DisplayName("重复携带令牌：首次 WARN、后续降为 debug，但行为始终是未认证（防日志被刷爆）")
+    void repeatedTokenRequestsMustStayUnauthenticated() {
+        assertThat(authenticate("Bearer fake-token").isAuthenticated()).isFalse();
+        assertThat(authenticate("Bearer fake-token").isAuthenticated()).isFalse();
+        assertThat(authenticate("Bearer another-token").isAuthenticated()).isFalse();
+    }
+
+    @Test
     @DisplayName("空串与纯空白令牌同样按未认证处理")
     void shouldRejectBlankToken() {
         assertThat(authenticate("   ").isAuthenticated()).isFalse();

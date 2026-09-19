@@ -21,8 +21,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 /**
  * 部署单元① 网关的启动类。
  *
- * <p><b>M0a 只有骨架</b>：不含路由、鉴权、租户上下文注入与伪造头剥离（P2 落地，
- * 见 IOT-CLOUD-SPEC.md §4.1 / §4.4）。本类存在的意义是「三单元能起」这一运行期验收的前提。</p>
+ * <p><b>P2 已落地</b>路由、鉴权、伪造头剥离与<b>租户上下文的注入通路</b>（见 IOT-CLOUD-SPEC.md §4.1 / §4.4）；
+ * 具体「谁能被注入租户身份」取决于认证服务，属 M0b（M0a 的 Provider 为 fail-closed 占位）。</p>
  *
  * @author wenbin
  * @since 2026-09-18
