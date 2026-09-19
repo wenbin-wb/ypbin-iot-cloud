@@ -69,6 +69,34 @@ class InternalPathBlockFilterTest {
     }
 
     @Test
+    @DisplayName("绕过形态①重复斜杠：/business//internal/... 必须被拦（StripPrefix 会丢弃空段）")
+    void shouldBlockPathWithDuplicateSlash() {
+        assertBlocked(MockServerWebExchange
+            .from(MockServerHttpRequest.get("/business//internal/lease/epochs")));
+    }
+
+    @Test
+    @DisplayName("绕过形态②矩阵参数：/business/internal;a=b/... 必须被拦（Spring MVC 会剥掉 ;a=b）")
+    void shouldBlockPathWithMatrixParams() {
+        assertBlocked(MockServerWebExchange
+            .from(MockServerHttpRequest.get("/business/internal;a=b/lease/epochs")));
+    }
+
+    @Test
+    @DisplayName("绕过形态③路径穿越：/business/devices/../internal/... 必须被拦（容器会解析 ..）")
+    void shouldBlockPathWithDotDotTraversal() {
+        assertBlocked(MockServerWebExchange
+            .from(MockServerHttpRequest.get("/business/devices/../internal/lease/epochs")));
+    }
+
+    @Test
+    @DisplayName("大小写不同的 internal 也拦（路由器大小写敏感，这里宁可多拦）")
+    void shouldBlockUppercaseInternalSegment() {
+        assertBlocked(MockServerWebExchange
+            .from(MockServerHttpRequest.get("/business/INTERNAL/lease/epochs")));
+    }
+
+    @Test
     @DisplayName("普通业务路径必须放行（不能把封堵写成拦截一切）")
     void shouldPassThroughBusinessPath() {
         assertPassedThrough("/business/devices");

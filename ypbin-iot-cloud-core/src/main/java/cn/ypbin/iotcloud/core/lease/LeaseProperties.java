@@ -46,7 +46,13 @@ public class LeaseProperties {
     /** 是否启用租约维护；关掉后不装配扫描器（本地只想跑业务接口时用）。 */
     private boolean enabled = true;
 
-    /** 租约有效期：必须明显大于 access 的续约周期（默认 10s），否则抖动即被判过期。 */
+    /**
+     * 租约有效期：必须明显大于 access 的续约周期（默认 10s），否则抖动即被判过期。
+     *
+     * <p>⚠️ 写成空值（{@code ypbin.lease.ttl=}）时 Spring 绑定会把它当作<b>未配置</b>并落回这里的默认值
+     * （独立复核实测：`ttl=` 时实际生效 30s，且不报错）——这是绑定语义，不是本类的判断；
+     * 想表达「不合法」请显式写 0 或负数，那会被启动自检抓出来。</p>
+     */
     private Duration ttl = Duration.ofSeconds(30);
 
     /** 失效扫描周期（毫秒）：也是「节点退出 → 待接管」的最坏延迟。 */

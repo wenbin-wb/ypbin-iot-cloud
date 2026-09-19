@@ -44,6 +44,11 @@ import org.springframework.util.StringUtils;
  *
  * <p>校验逻辑与日志分离成 {@link #errors()} / {@link #warnings()} 两个纯方法，便于直接断言。</p>
  *
+ * <p><b>为什么是 ERROR 日志而不是 fail-fast</b>（独立复核提过一次，这里记录取舍）：M0a 允许「先起来看日志」，
+ * 把配置错误升级成起不来会让本地联调更难；而这些错误的后果是<b>无谓接管/抖动</b>而非数据损坏。
+ * 代价是「配置错了但服务看起来健康」——所以 INFO 行会说清关掉开关时少了什么，
+ * 而把自检接入 {@code /actuator/health} 已登记为 M0b 待办。</p>
+ *
  * @author wenbin
  * @since 2026-09-19
  */
@@ -93,17 +98,18 @@ public class BusinessStartupChecker implements InitializingBean {
         }
         Duration ttl = leaseProperties.getTtl();
         Duration renewInterval = leaseProperties.getExpectedRenewInterval();
-        if (renewInterval.isZero() || renewInterval.isNegative()) {
-            // 不校验它自己会让「有效期是否足够」形同虚设：interval 配 0 时任何 ttl 都「大于」它
+        // 不校验参数自身会让「有效期是否足够」形同虚设：interval 配 0 时任何 ttl 都「大于」它。
+        // 注意**不早退**：一次启动要把所有配置问题都列出来，否则运维改一条重启一次才能看到下一条。
+        boolean intervalValid = !renewInterval.isZero() && !renewInterval.isNegative();
+        boolean ttlValid = !ttl.isZero() && !ttl.isNegative();
+        if (!intervalValid) {
             issues.add("ypbin.lease.expected-renew-interval 必须为正数（当前 " + renewInterval
                 + "）：为 0 或负数会让「租约有效期是否足够」的校验静默失效");
-            return issues;
         }
-        if (ttl.isZero() || ttl.isNegative()) {
+        if (!ttlValid) {
             issues.add("ypbin.lease.ttl 必须为正数（当前 " + ttl + "）");
-            return issues;
         }
-        if (ttl.compareTo(renewInterval) <= 0) {
+        if (intervalValid && ttlValid && ttl.compareTo(renewInterval) <= 0) {
             issues.add("租约有效期(" + ttl + ")不大于预期续约周期(" + renewInterval
                 + ")：一次抖动就会让续约跨过到期时间、把活着的节点判成失效并触发接管；请把 ypbin.lease.ttl 调到明显更大");
         }

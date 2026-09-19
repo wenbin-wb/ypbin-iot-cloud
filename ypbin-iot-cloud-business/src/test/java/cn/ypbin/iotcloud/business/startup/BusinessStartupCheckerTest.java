@@ -102,6 +102,37 @@ class BusinessStartupCheckerTest {
     }
 
     @Test
+    @DisplayName("参数自身不合法：续约周期为负数 → 报错（覆盖 isNegative 半边）")
+    void shouldReportErrorWhenIntervalNegative() {
+        lease.setExpectedRenewInterval(Duration.ofSeconds(-5));
+
+        BusinessStartupChecker checker = new BusinessStartupChecker(internal, lease);
+
+        assertThat(checker.errors()).singleElement().asString().contains("expected-renew-interval 必须为正数");
+    }
+
+    @Test
+    @DisplayName("参数自身不合法：ttl 为负数 → 报错（覆盖 isNegative 半边）")
+    void shouldReportErrorWhenTtlNegative() {
+        lease.setTtl(Duration.ofSeconds(-5));
+
+        BusinessStartupChecker checker = new BusinessStartupChecker(internal, lease);
+
+        assertThat(checker.errors()).singleElement().asString().contains("ttl 必须为正数");
+    }
+
+    @Test
+    @DisplayName("两个参数同时非法 → 一次列全两条（不早退掩盖第二条）")
+    void shouldReportAllIssuesAtOnce() {
+        lease.setTtl(Duration.ZERO);
+        lease.setExpectedRenewInterval(Duration.ZERO);
+
+        BusinessStartupChecker checker = new BusinessStartupChecker(internal, lease);
+
+        assertThat(checker.errors()).hasSize(2);
+    }
+
+    @Test
     @DisplayName("关掉租约维护时不做租约相关检查（组件都没装配，报了只会误导）")
     void shouldSkipLeaseChecksWhenDisabled() {
         lease.setEnabled(false);

@@ -18,6 +18,8 @@ package cn.ypbin.iotcloud.gateway.internal;
 import cn.ypbin.starter.core.exception.GlobalErrorCode;
 import cn.ypbin.starter.core.model.R;
 import cn.ypbin.starter.core.util.LogSanitizer;
+import java.util.ArrayList;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
@@ -93,22 +95,57 @@ public class InternalPathBlockFilter implements WebFilter, Ordered {
      * 因此内部端点只有两种形态——{@code /internal/...}（不带服务前缀）与
      * {@code /{服务}/internal/...}（带前缀，剥掉后即形态一）。</p>
      *
-     * <p>此前用 {@code path.contains("/internal/")} 判断，实测有两类问题：
-     * ① 误伤——{@code /business/devices/internal/points} 这种「internal 只是路径中段」的普通业务路径会被 404；
-     * ② 漏判——{@code /business/internal}（无尾斜杠）不被拦（会落到鉴权 401）。
-     * 段判据把两者都修正：只看<b>第一段或第二段</b>是否等于 {@code internal}。</p>
+     * <p><b>必须按路由器的归一化规则先归一化再判</b>，否则会漏判。独立复核实测过两个绕过形态，
+     * 并证明「只要网关不再剥离 {@code X-Internal-Token}，它们就能同时绕过本过滤器与下游守卫、
+     * 从外网拿到内部数据」：</p>
+     * <ul>
+     *   <li>{@code /business//internal/lease/epochs}——重复斜杠让朴素的 {@code split("/")} 得到空段，
+     *       而 StripPrefix 的 tokenizer <b>丢弃空段</b>，转发后就是 {@code /internal/lease/epochs}；</li>
+     *   <li>{@code /business/internal;a=b/lease/epochs}——矩阵参数让该段不等于 {@code internal}，
+     *       而 Spring MVC 匹配时会剥掉 {@code ;a=b}，同样命中 {@code /internal/**}。</li>
+     * </ul>
+     *
+     * <p>另外还有第三条同类（本类作者自查发现）：{@code /business/devices/../internal/x}——
+     * 朴素判据看到的是中段 {@code devices} 与 {@code ..}，而下游容器会把 {@code ..} 解析掉。</p>
+     *
+     * <p>因此这里依次做：<b>去掉矩阵参数 → 丢弃空段与 {@code .} → 解析 {@code ..}（弹出上一段）</b>，
+     * 再只看前两段是否等于 {@code internal}（大小写不敏感：路由器大小写敏感，这里宁可多拦）。</p>
      *
      * @param path 请求路径
      * @return 是否应拦
      */
-    private boolean isInternalApiPath(String path) {
-        String trimmed = path.startsWith("/") ? path.substring(1) : path;
-        if (trimmed.isEmpty()) {
-            return false;
+    boolean isInternalApiPath(String path) {
+        List<String> segments = normalize(path);
+        return !segments.isEmpty() && (isInternal(segments.get(0))
+            || (segments.size() > 1 && isInternal(segments.get(1))));
+    }
+
+    /** 按路由器的归一化规则切段：去矩阵参数、丢空段与 {@code .}、解析 {@code ..}。 */
+    private List<String> normalize(String path) {
+        List<String> segments = new ArrayList<>();
+        for (String raw : path.split("/")) {
+            String segment = raw;
+            int matrixParamIndex = segment.indexOf(';');
+            if (matrixParamIndex >= 0) {
+                segment = segment.substring(0, matrixParamIndex);
+            }
+            if (segment.isEmpty() || ".".equals(segment)) {
+                continue;
+            }
+            if ("..".equals(segment)) {
+                if (!segments.isEmpty()) {
+                    segments.remove(segments.size() - 1);
+                }
+                continue;
+            }
+            segments.add(segment);
         }
-        String[] segments = trimmed.split("/");
-        return INTERNAL_SEGMENT.equals(segments[0])
-            || (segments.length > 1 && INTERNAL_SEGMENT.equals(segments[1]));
+        return segments;
+    }
+
+    /** 是否为内部端点段（大小写不敏感：路由器大小写敏感，这里宁可多拦）。 */
+    private boolean isInternal(String segment) {
+        return INTERNAL_SEGMENT.equalsIgnoreCase(segment);
     }
 
     /** 写出与「接口不存在」一致的统一信封（不区分「路由不存在」与「内部端点被拦」，避免暴露拓扑）。 */

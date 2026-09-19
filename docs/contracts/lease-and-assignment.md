@@ -113,6 +113,8 @@ business 用 **租约 + 失效检测 + 两阶段接管**保证「同一时刻只
 | 超时/重试的宿主覆盖 | 两个 Bean 都是 `@ConditionalOnMissingBean`（`SearchStrategy.ALL`，宿主在祖先链任意位置定义即可覆盖）：**覆盖即自负「不得让单次续约跨过周期」的责任** | `LeaseFeignConfiguration` + 独立复核 §4 |
 | 启动期校验（服务端侧） | ✅ **P3 已落地**：business 启动时校验 `ypbin.lease.ttl > ypbin.lease.expected-renew-interval`（不满足记 ERROR），并在「未配内部凭证」「可分配租户为空」时各记一条 WARN —— 后者正是「租约链路在默认配置下空跑」这个坑 | `BusinessStartupChecker` |
 | 启动期校验（**客户端侧**，P4 必办） | ⏳ 未落地：access 接上 Feign 后，必须校验「单次续约最坏耗时（connect+read×重试）< 续约周期」，覆盖 `LeaseFeignConfiguration` 的宿主同样要过这道校验 | 待 P4 |
+| **服务端可被关闭**（`ypbin.lease.enabled=false`） | 关掉时 `LeaseService`/`InMemoryLeaseStore`/`LeaseExpiryScanner`/`InternalLeaseController` **全部不装配**，`/internal/lease/**` 不注册（请求得到「接口不存在」的信封；**此时不带令牌也是 404**，因为没有 handler、拦截器根本不执行——不要在关闭模式下把 401 当诊断依据） | 控制器 Javadoc + `BusinessWithoutLeaseContextTest` |
+| **调用方（P4 access）必办** | `register` 的任何非 `code=200`（含上面的 404）**必须当作启动失败**：本契约里 register 是「开始采集」的前置，失败即不得建链。把 404 当成可重试/参数错会让 fail-fast 落空 | 本条为 P4 硬要求 |
 | HTTP 200 信封的前提 | `BusinessException → HTTP 200 + R.code=401` 由 **`ypbin-starter-web` 的全局异常处理器**完成；`common` 只依赖 `starter-core` → **P3 起 business 必须显式引入 `ypbin-starter-web`**（版本已在 `-dependencies` 预管） | 独立复核 F8 |
 | 时间假设 | 到期判断用 `LocalDateTime` 直接比较，**隐含「各部署单元同时区且 NTP 同步」**；跨时区部署需改 `Instant`（spec §6 允许协议时序用 `Instant`） | 独立复核 |
 
