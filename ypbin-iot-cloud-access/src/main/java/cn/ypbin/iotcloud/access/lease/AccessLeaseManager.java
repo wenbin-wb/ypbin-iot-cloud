@@ -32,12 +32,14 @@ import cn.ypbin.starter.core.util.LogSanitizer;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -76,10 +78,14 @@ public class AccessLeaseManager {
     private final Counter renewFailure;
     private final Counter revoked;
     private final Counter selfFenced;
+    private final Counter acquiredCounter;
     private final Counter nodeFenced;
 
     /** 本地持有的租户租约（热路径只读它，不查库不调 RPC）。 */
     private final Map<Long, LeaseSnapshot> holdings = new ConcurrentHashMap<>();
+
+    /** 上次「周期重领」的时刻（接管孤儿租户的入口，见 {@link AccessProperties#getAcquireIntervalMs()}）。 */
+    private final AtomicReference<LocalDateTime> lastAcquireAt = new AtomicReference<>();
 
     /**
      * 构造租约状态机。
@@ -102,6 +108,8 @@ public class AccessLeaseManager {
             .description("因 business 撤销/接管而停采的租户次数").register(meterRegistry);
         this.selfFenced = Counter.builder(METRIC_PREFIX + "self_fenced")
             .description("因本地租约过期而自行停采的租户次数").register(meterRegistry);
+        this.acquiredCounter = Counter.builder(METRIC_PREFIX + "acquired")
+            .description("周期重领新接管的租户次数").register(meterRegistry);
         this.nodeFenced = Counter.builder(METRIC_PREFIX + "node_fenced")
             .description("节点级 fencing 次数（business 判定本节点失效）").register(meterRegistry);
         Gauge.builder(METRIC_PREFIX + "held", holdings, Map::size)
@@ -118,6 +126,7 @@ public class AccessLeaseManager {
     public void start() {
         registerOrFail();
         acquireOrFail();
+        lastAcquireAt.set(LocalDateTime.now());
     }
 
     /**
@@ -132,12 +141,49 @@ public class AccessLeaseManager {
 
     /** 带时间注入的实现（测试用它模拟过期，不必真的等）。 */
     void renewAndSelfCheck(LocalDateTime now) {
+        // ① 先本地自检：已过期的租约必须立刻停采（不等 business，也不先尝试续约）
         selfFenceExpiredLocally(now);
+        // ② 有持有才续约（没租户时不制造空调用）
         if (holdings.isEmpty()) {
             log.debug("本地没有持有租户，跳过续约");
+        } else {
+            renew(now);
+        }
+        // ③ 周期重领：接管的执行入口——把别的节点退出后留下的「待接管」租户接过来
+        refreshAssignmentsIfDue(now);
+    }
+
+    /**
+     * 到点就重领（默认 60s 一次）。
+     *
+     * <p>不做这一步的后果：{@code acquire} 只在启动时调一次，那么别的节点退出后留下的租户会停在
+     * 「待接管」而<b>永远无人接手</b>——§3.1① 的接管链路断在最后一步。
+     * 契约保证 {@code acquire} 幂等（重复调用只续期、不重复分配），所以这里可以安全地周期性调用。</p>
+     */
+    private void refreshAssignmentsIfDue(LocalDateTime now) {
+        LocalDateTime last = lastAcquireAt.get();
+        if (last != null && Duration.between(last, now).toMillis() < properties.getAcquireIntervalMs()) {
             return;
         }
-        renew(now);
+        lastAcquireAt.set(now);
+        try {
+            R<LeaseAcquireResp> resp = leaseClient.acquire(acquireRequest());
+            if (resp == null || resp.getCode() != GlobalErrorCode.SUCCESS.getCode() || resp.getData() == null) {
+                log.error("周期重领失败（非成功信封）：node={} code={}",
+                    LogSanitizer.sanitize(properties.getNodeId()), resp == null ? "null" : resp.getCode());
+                return;
+            }
+            List<Long> gained = applyAcquireResponse(resp.getData());
+            if (!gained.isEmpty()) {
+                acquiredCounter.increment(gained.size());
+                log.warn("周期重领到租户（接管孤儿租户）：node={} 新增={}",
+                    LogSanitizer.sanitize(properties.getNodeId()), LogSanitizer.sanitize(gained));
+            }
+        } catch (RuntimeException ex) {
+            // 重领失败不影响已经在采的租户：记错误、下一轮再试（不静默）
+            log.error("周期重领失败：node={}（已在采的租户不受影响）",
+                LogSanitizer.sanitize(properties.getNodeId()), ex);
+        }
     }
 
     /** 当前本地持有的租户（只读快照）。 */
@@ -170,11 +216,9 @@ public class AccessLeaseManager {
 
     /** 领取：失败同样抛（没有租户就不要开始采集）。 */
     private void acquireOrFail() {
-        LeaseAcquireReq req = new LeaseAcquireReq();
-        req.setAccessNode(properties.getNodeId());
         R<LeaseAcquireResp> resp;
         try {
-            resp = leaseClient.acquire(req);
+            resp = leaseClient.acquire(acquireRequest());
         } catch (RuntimeException ex) {
             throw new IllegalStateException("access 启动失败：无法连接 business 领取租约（node="
                 + properties.getNodeId() + "）", ex);
@@ -183,13 +227,34 @@ public class AccessLeaseManager {
             throw new IllegalStateException("access 启动失败：领取租约未成功（node=" + properties.getNodeId()
                 + ", code=" + (resp == null ? "null" : resp.getCode()) + "）");
         }
-        List<Long> tenantIds = new ArrayList<>();
-        for (LeaseAssignmentDto assignment : resp.getData().getAssignments()) {
-            applyAssignment(assignment);
-            tenantIds.add(assignment.getTenantId());
-        }
+        List<Long> tenantIds = applyAcquireResponse(resp.getData());
         log.info("租户领取完成：node={} 持有租户={}", LogSanitizer.sanitize(properties.getNodeId()),
             LogSanitizer.sanitize(tenantIds));
+    }
+
+    /** 领取请求（启动领取与周期重领共用）。 */
+    private LeaseAcquireReq acquireRequest() {
+        LeaseAcquireReq req = new LeaseAcquireReq();
+        req.setAccessNode(properties.getNodeId());
+        return req;
+    }
+
+    /**
+     * 落地领取响应：写入本地快照 + 开始采集。
+     *
+     * @param data 领取响应
+     * @return 本次<b>新增</b>（此前未持有）的租户
+     */
+    private List<Long> applyAcquireResponse(LeaseAcquireResp data) {
+        List<Long> gained = new ArrayList<>();
+        for (LeaseAssignmentDto assignment : data.getAssignments()) {
+            boolean isNew = !holdings.containsKey(assignment.getTenantId());
+            applyAssignment(assignment);
+            if (isNew) {
+                gained.add(assignment.getTenantId());
+            }
+        }
+        return gained;
     }
 
     /**
@@ -240,6 +305,7 @@ public class AccessLeaseManager {
             log.warn("business 判定本节点已失效（nodeFenced）：整体停采并重新注册");
             linkManager.fenceAll("business 判定节点失效");
             holdings.clear();
+            lastAcquireAt.set(now);
             try {
                 registerOrFail();
                 acquireOrFail();

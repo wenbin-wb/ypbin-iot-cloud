@@ -28,6 +28,8 @@ ypbin:
     capacity:
     # 续约周期：必须 ≥ 一次续约最坏耗时（connect 1s + read 3s）的 2 倍，启动自检会拒绝太小
     renew-interval-ms: 10000
+    # 周期重领间隔：接管的执行入口。只在启动时领取会让「待接管」的租户永远无人接手
+    acquire-interval-ms: 60000
 
 management:
   endpoints:

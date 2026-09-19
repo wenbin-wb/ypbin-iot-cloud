@@ -78,6 +78,9 @@ class AccessLeaseManagerTest {
         linkManager = new LoggingTenantLinkManager();
         properties = new AccessProperties();
         properties.setNodeId(NODE);
+        // 默认「永不重领」：本类里绝大多数用例只关心续约/过期自检，重领会在过期用例里把租户又领回来，
+        // 造成与用例意图无关的串扰。重领本身由下面三条专门用例覆盖（它们自己把间隔调小）。
+        properties.setAcquireIntervalMs(Long.MAX_VALUE);
         meterRegistry = new SimpleMeterRegistry();
         manager = new AccessLeaseManager(leaseClient, linkManager, properties, meterRegistry);
     }
@@ -290,11 +293,69 @@ class AccessLeaseManagerTest {
     }
 
     @Test
-    @DisplayName("本地没有持有租户时：跳过续约（不制造空调用）")
-    void emptyHoldingsShouldSkipRenew() {
+    @DisplayName("本地没有持有租户时：跳过续约（不制造空调用），但仍会按周期重领")
+    void emptyHoldingsShouldSkipRenewButStillRefresh() {
         manager.renewAndSelfCheck();
 
         verify(leaseClient, times(0)).renew(any());
+        // 首次重领：lastAcquireAt 为空 → 立即执行一次（接管孤儿租户的入口）
+        verify(leaseClient, times(1)).acquire(any());
+    }
+
+    @Test
+    @DisplayName("周期重领：到点后把别的节点遗留的租户接过来（否则「待接管」永远无人接手）")
+    void refreshShouldTakeOverOrphanTenants() {
+        properties.setAcquireIntervalMs(60_000L);
+        // 第一次领取只拿到 A（长 TTL：避免它在 +70s 时已过期而被自检停采，干扰「重领」的断言）
+        when(leaseClient.register(any())).thenReturn(R.ok());
+        when(leaseClient.acquire(any())).thenReturn(R.ok(acquireResp(assignment(TENANT_A, 600))));
+        manager.start();
+        // business 把孤儿租户 B 分给本节点（重领时才可见）
+        when(leaseClient.acquire(any()))
+            .thenReturn(R.ok(acquireResp(assignment(TENANT_A, 600), assignment(TENANT_B, 600))));
+
+        // 未到重领间隔（60s）：不重复领取
+        manager.renewAndSelfCheck(LocalDateTime.now().plusSeconds(10));
+        verify(leaseClient, times(1)).acquire(any());
+        assertThat(manager.heldTenants()).containsExactly(TENANT_A);
+
+        // 到点：重领并接管 B（A 已持有，不算新增）
+        manager.renewAndSelfCheck(LocalDateTime.now().plusSeconds(70));
+
+        verify(leaseClient, times(2)).acquire(any());
+        assertThat(manager.heldTenants()).containsExactlyInAnyOrder(TENANT_A, TENANT_B);
+        assertThat(linkManager.isCollecting(TENANT_B)).isTrue();
+        assertThat(meterRegistry.get("iotcloud.lease.acquired").counter().count()).isEqualTo(1.0d);
+    }
+
+    @Test
+    @DisplayName("周期重领拿到非成功信封：只记错误，不影响已在采的租户")
+    void refreshRejectedEnvelopeShouldNotAffectHoldings() {
+        properties.setAcquireIntervalMs(60_000L);
+        when(leaseClient.register(any())).thenReturn(R.ok());
+        when(leaseClient.acquire(any())).thenReturn(R.ok(acquireResp(assignment(TENANT_A, 600))));
+        manager.start();
+        when(leaseClient.acquire(any())).thenReturn(R.fail(500, "内部错误"));
+
+        manager.renewAndSelfCheck(LocalDateTime.now().plusSeconds(70));
+
+        assertThat(manager.heldTenants()).containsExactly(TENANT_A);
+        assertThat(meterRegistry.get("iotcloud.lease.acquired").counter().count()).isZero();
+    }
+
+    @Test
+    @DisplayName("周期重领失败：只记错误，不影响已在采的租户（下一轮再试）")
+    void refreshFailureShouldNotAffectExistingHoldings() {
+        properties.setAcquireIntervalMs(60_000L);
+        when(leaseClient.register(any())).thenReturn(R.ok());
+        when(leaseClient.acquire(any())).thenReturn(R.ok(acquireResp(assignment(TENANT_A, 600))));
+        manager.start();
+        when(leaseClient.acquire(any())).thenThrow(new IllegalStateException("business 抖了一下"));
+
+        manager.renewAndSelfCheck(LocalDateTime.now().plusSeconds(70));
+
+        assertThat(manager.heldTenants()).containsExactly(TENANT_A);
+        assertThat(linkManager.isCollecting(TENANT_A)).isTrue();
     }
 
     @Test
@@ -332,10 +393,15 @@ class AccessLeaseManagerTest {
     }
 
     private LeaseAssignmentDto assignment(Long tenantId) {
+        return assignment(tenantId, 30);
+    }
+
+    /** 指定剩余有效期（重领类用例需要长 TTL，否则「领回来又过期」会污染断言）。 */
+    private LeaseAssignmentDto assignment(Long tenantId, long ttlSeconds) {
         LeaseAssignmentDto dto = new LeaseAssignmentDto();
         dto.setTenantId(tenantId);
         dto.setAccessNode(NODE);
-        dto.setLeaseExpireAt(LocalDateTime.now().plusSeconds(30));
+        dto.setLeaseExpireAt(LocalDateTime.now().plusSeconds(ttlSeconds));
         dto.setEpoch(1L);
         dto.setState(LeaseState.ACTIVE);
         return dto;

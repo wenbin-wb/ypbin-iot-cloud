@@ -61,6 +61,17 @@ public class AccessProperties {
     private boolean startupHandshakeEnabled = true;
 
     /**
+     * 周期<b>重领</b>间隔（毫秒），默认 60s。
+     *
+     * <p>为什么需要它：{@code acquire} 不只是「首次领取」——它是**接管的执行入口**（business 把
+     * 待接管/已释放的租户分给调用的节点）。如果一个节点只在启动时领取一次，那么别的节点退出后留下的
+     * 租户会停在「待接管」状态<b>永远没人接手</b>，§3.1① 的接管链路就断在最后一步。
+     * 因此本节点定期重领：有富余容量时把孤儿租户接过来（契约保证 {@code acquire} 幂等、
+     * 只续期不重复分配）。</p>
+     */
+    private long acquireIntervalMs = 60_000L;
+
+    /**
      * 续约周期（毫秒），默认 10s（spec §3.1① 的默认值）。
      *
      * <p>必须大于「connect + read」的最坏耗时（默认 1s + 3s），否则一次卡顿就会让续约跨过
