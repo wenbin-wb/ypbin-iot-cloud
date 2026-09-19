@@ -31,6 +31,27 @@ ypbin:
     # 周期重领间隔：接管的执行入口。只在启动时领取会让「待接管」的租户永远无人接手。
     # 取值决定接管最坏延迟 = ttl + 扫描周期 + 本值（默认 30+15+15 = 60s），不宜大于扫描周期
     acquire-interval-ms: 15000
+    # 设备清单（P4b）：租约只回答「该采哪些租户」，设备是租户的下级。
+    # M0a 还没有设备表（迁移在 M0b），所以先用配置给出「租户 → 设备 → 连接」三件事。
+    # 示例（按需打开）：
+    # devices:
+    #   - tenant-id: 11
+    #     device-id: dev-11-1
+    #     connection-id: conn-11
+    #     uri: tcp://127.0.0.1:15002   # 必须带 scheme，由 iot-starter 校验
+    #     poll-interval-ms: 0          # 0 = 不主动轮询（M0a 只验证建链/断链）
+    devices: []
+    # 设备建链/请求超时：显式配置（仓库铁律：远程调用禁止无超时默认客户端）
+    device-connect-timeout: 5s
+    device-request-timeout: 3s
+  # iot-starter（P4b 接协议栈）的开关，前缀是 ypbin.iot：
+  #   - devices.enabled 必须保持 true（默认）：它的设备引导与**变更通道接线**都在这一段里，
+  #     关掉它就等于「运行期的绑定/解绑没人听」，租约驱动的建链/断链会静默失效。
+  #   - devices.probe-before-bind 保持默认 false：本节点在 IotTenantLinkManager 里自己 probe
+  #     （为了让「探测失败的设备不被算作已采集」有明确的日志与状态），避免重复探测。
+  iot:
+    devices:
+      enabled: true
 
 management:
   endpoints:

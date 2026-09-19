@@ -43,15 +43,20 @@
     <dependencyManagement>
         <dependencies>
             <!--
-              ===== ypbin-iot-bom import 占位（M0a 不启用）=====
+              ===== ypbin-iot-bom import（P4b 起启用）=====
 
-              启用条件（两条都满足才可放开）：
-                ① cn.ypbin:ypbin-iot-bom 能被解析（首次发布到 Central，或本地 install / 私服 SNAPSHOT）；
-                ② access 开始接 iot-starter（IOT-M0A-IMPLEMENTATION-PLAN.md 的 P4）。
-              现在放开会直接让干净环境（CI / 新机器）构建失败，而不是失败在某个模块上。
+              两个启用条件已在 2026-09-19 全部满足：
+                ① `cn.ypbin:ypbin-iot-bom` 可解析 —— 由本机
+                   `mvn -f ../ypbin-iot-starter/pom.xml -DskipTests install` 装进 `~/.m2`
+                   （该框架仍未发布到 Central，见 IOT-CLOUD-SPEC.md §11 与它自己的 ROADMAP
+                   「先让 access 用 SNAPSHOT 跑通、再发 0.1.0」）；
+                ② access 开始接 iot-starter（P4b）。
 
-              放开后 access 只引 BOM，不写具体协议模块版本（协议模块按需引入）。
+              ⚠️ 因此本仓的**干净环境构建依赖 `~/.m2` 里的 iot SNAPSHOT**：新机器/CI 必须先装 iot-starter，
+              否则会在这里失败（失败点是「解析不到 BOM」，比某个模块编译失败更好定位）。
 
+              放开后 access 只引 BOM，不写具体协议模块版本（协议模块按需引入：M0a/P4b 用 tcp）。
+            -->
             <dependency>
                 <groupId>cn.ypbin</groupId>
                 <artifactId>ypbin-iot-bom</artifactId>
@@ -59,7 +64,6 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
-            -->
 
             <!-- ===== 共享内核（显式钉版本，理由见上方 ypbin-starter.version 注释）===== -->
             <dependency>
