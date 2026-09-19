@@ -57,6 +57,30 @@ class LeaseEpochRulesTest {
     }
 
     @Test
+    @DisplayName("组合判据：状态失效**或**租约已过期都必须 self-fencing（只看状态会漏判「ACTIVE 但已过期」）")
+    void needsSelfFenceShouldCoverBothStateAndExpiry() {
+        LocalDateTime now = LocalDateTime.of(2026, 9, 18, 12, 0, 0);
+        // ACTIVE 且未过期 → 不 fencing
+        assertThat(LeaseEpochRules.needsSelfFence(LeaseState.ACTIVE, now.plusSeconds(5), now)).isFalse();
+        // ACTIVE 但已过期 → 必须 fencing（长 GC 停顿/网络分区下的真实形态）
+        assertThat(LeaseEpochRules.needsSelfFence(LeaseState.ACTIVE, now.minusSeconds(1), now)).isTrue();
+        // 状态已失效 → 必须 fencing（即使到期时间还没到）
+        assertThat(LeaseEpochRules.needsSelfFence(LeaseState.PENDING_TAKEOVER, now.plusSeconds(5), now))
+            .isTrue();
+        // 拿不到状态或到期时间 → 一律 fencing（fail-safe）
+        assertThat(LeaseEpochRules.needsSelfFence(null, now.plusSeconds(5), now)).isTrue();
+        assertThat(LeaseEpochRules.needsSelfFence(LeaseState.ACTIVE, null, now)).isTrue();
+    }
+
+    @Test
+    @DisplayName("快照采用后只回放严格新于快照的事件（否则订阅期间的新变更被旧快照覆盖）")
+    void shouldReplayOnlyNewerEventsAfterSnapshot() {
+        assertThat(LeaseEpochRules.shouldReplayAfterSnapshot(7L, 8L)).isTrue();
+        assertThat(LeaseEpochRules.shouldReplayAfterSnapshot(7L, 7L)).isFalse();
+        assertThat(LeaseEpochRules.shouldReplayAfterSnapshot(8L, 7L)).isFalse();
+    }
+
+    @Test
     @DisplayName("非 ACTIVE 租约都必须 self-fencing")
     void shouldFenceUnlessActive() {
         assertThat(LeaseEpochRules.shouldFence(LeaseState.ACTIVE)).isFalse();

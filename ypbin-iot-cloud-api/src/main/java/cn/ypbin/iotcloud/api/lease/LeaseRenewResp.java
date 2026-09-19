@@ -15,17 +15,22 @@
  */
 package cn.ypbin.iotcloud.api.lease;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import lombok.Getter;
 import lombok.Setter;
 
 /**
- * 续约响应：<b>本响应是 self-fencing 的判据来源</b>。
+ * 续约响应：<b>本响应是 self-fencing 的判据来源之一</b>。
  *
- * <p>节点必须对 {@link #revokedTenantIds} 中的租户<b>立即断链并停止采集</b>：这些租户可能已被
- * 新节点接管，而此时旧节点若因长 GC 停顿/网络分区仍然活着，就会出现「新旧同时轮询同一台设备」
- * （IOT-CLOUD-SPEC.md §3.1① 的 fencing 要求）。</p>
+ * <p>节点必须做两件事：</p>
+ * <ol>
+ *   <li>对 {@link #revokedTenantIds} 中的租户<b>立即断链并停止采集</b>——它们可能已被新节点接管，
+ *       而此时旧节点若因长 GC 停顿/网络分区仍然活着，就会出现「新旧同时轮询同一台设备」；</li>
+ *   <li>若 {@link #nodeFenced} 为 {@code true}，说明本节点在 business 侧已不被认可（注册丢失/被判定死亡），
+ *       必须<b>整体 fencing</b>：断开全部链路并停止采集，然后重新注册。</li>
+ * </ol>
+ *
+ * <p>集合字段的 getter 做了空值兜底：即使对端显式送来 {@code null}，调用方也永远拿到空集合。</p>
  *
  * @author wenbin
  * @since 2026-09-18
@@ -34,15 +39,30 @@ import lombok.Setter;
 @Setter
 public class LeaseRenewResp {
 
-    /** 续约成功的租户 ID（空集合表示无，绝不为 null）。 */
-    private List<Long> renewedTenantIds = List.of();
+    /** 续约成功的租户及其新到期时间（逐租户回执，见 {@link LeaseRenewAck}）。 */
+    private List<LeaseRenewAck> renewedLeases = List.of();
 
-    /**
-     * 已失效/已被接管的租户 ID —— 节点必须 self-fencing（断链 + 停采）。
-     * 空集合表示无，绝不为 null。
-     */
+    /** 已失效/已被接管的租户 ID —— 节点必须对它们 self-fencing（断链 + 停采）。 */
     private List<Long> revokedTenantIds = List.of();
 
-    /** 下次续约的租约到期时间（节点须在此之前再次续约）。 */
-    private LocalDateTime nextLeaseExpireAt;
+    /** 节点级 fencing 信号：{@code true} 表示本节点已不被认可，必须整体停采后重新注册。 */
+    private boolean nodeFenced;
+
+    /**
+     * 空值兜底的续约回执。
+     *
+     * @return 回执列表，永不为 {@code null}
+     */
+    public List<LeaseRenewAck> getRenewedLeases() {
+        return renewedLeases == null ? List.of() : renewedLeases;
+    }
+
+    /**
+     * 空值兜底的被撤销租户列表。
+     *
+     * @return 租户 ID 列表，永不为 {@code null}
+     */
+    public List<Long> getRevokedTenantIds() {
+        return revokedTenantIds == null ? List.of() : revokedTenantIds;
+    }
 }

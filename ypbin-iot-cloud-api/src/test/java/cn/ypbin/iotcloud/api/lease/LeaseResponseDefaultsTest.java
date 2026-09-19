@@ -41,8 +41,27 @@ class LeaseResponseDefaultsTest {
     @DisplayName("续约响应默认返回空集合而非 null（revoked 为空表示无需 fencing）")
     void renewRespDefaultsToEmptyLists() {
         LeaseRenewResp resp = new LeaseRenewResp();
-        assertThat(resp.getRenewedTenantIds()).isNotNull().isEmpty();
+        assertThat(resp.getRenewedLeases()).isNotNull().isEmpty();
         assertThat(resp.getRevokedTenantIds()).isNotNull().isEmpty();
+        assertThat(resp.isNodeFenced()).isFalse();
+    }
+
+    @Test
+    @DisplayName("对端显式送来 null 时，getter 也必须返回空集合（反序列化 null 不豁免铁律）")
+    void settersWithNullMustStillYieldEmptyCollections() {
+        LeaseRenewResp renew = new LeaseRenewResp();
+        renew.setRenewedLeases(null);
+        renew.setRevokedTenantIds(null);
+        assertThat(renew.getRenewedLeases()).isNotNull().isEmpty();
+        assertThat(renew.getRevokedTenantIds()).isNotNull().isEmpty();
+
+        LeaseAcquireResp acquire = new LeaseAcquireResp();
+        acquire.setAssignments(null);
+        assertThat(acquire.getAssignments()).isNotNull().isEmpty();
+
+        TenantEpochBatchResp epochs = new TenantEpochBatchResp();
+        epochs.setItems(null);
+        assertThat(epochs.getItems()).isNotNull().isEmpty();
     }
 
     @Test

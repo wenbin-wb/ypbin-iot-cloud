@@ -57,14 +57,14 @@ class LeaseContractValidationTest {
     }
 
     @Test
-    @DisplayName("续约请求必须带节点标识与非空租约条目")
-    void renewShouldRequireNodeIdAndLeases() {
+    @DisplayName("续约请求必须带节点标识；租约条目**允许为空**（节点此刻无租约是合法状态）")
+    void renewShouldRequireNodeIdButAllowEmptyLeases() {
         LeaseRenewReq req = new LeaseRenewReq();
-        assertThat(validator.validate(req)).hasSize(2);
+        assertThat(validator.validate(req)).hasSize(1);
 
         req.setAccessNode("access-1");
         req.setLeases(List.of());
-        assertThat(validator.validate(req)).hasSize(1);
+        assertThat(validator.validate(req)).isEmpty();
     }
 
     @Test
@@ -82,9 +82,28 @@ class LeaseContractValidationTest {
     }
 
     @Test
-    @DisplayName("释放请求必须带节点标识与租户列表")
+    @DisplayName("释放请求必须带节点标识与租户列表（不得为空——不留「空=释放全部」的隐藏语义）")
     void releaseShouldRequireNodeIdAndTenantIds() {
         LeaseReleaseReq req = new LeaseReleaseReq();
         assertThat(validator.validate(req)).hasSize(2);
+
+        req.setAccessNode("access-1");
+        req.setTenantIds(List.of());
+        assertThat(validator.validate(req)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("节点租户上限若给出必须为正数")
+    void registerShouldRejectNegativeMaxTenants() {
+        AccessNodeRegisterReq req = new AccessNodeRegisterReq();
+        req.setAccessNode("access-1");
+        req.setMaxTenants(-1);
+        assertThat(validator.validate(req)).hasSize(1);
+
+        req.setMaxTenants(0);
+        assertThat(validator.validate(req)).hasSize(1);
+
+        req.setMaxTenants(3);
+        assertThat(validator.validate(req)).isEmpty();
     }
 }

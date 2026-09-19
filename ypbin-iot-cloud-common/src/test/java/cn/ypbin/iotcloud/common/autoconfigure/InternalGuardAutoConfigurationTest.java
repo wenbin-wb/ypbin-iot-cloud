@@ -37,12 +37,15 @@ import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
  */
 class InternalGuardAutoConfigurationTest {
 
+    /** 与 imports 文件的实际登记一致：凭证配置（与 Web 类型无关）+ 守卫（仅 Servlet）。 */
     private final WebApplicationContextRunner servletRunner = new WebApplicationContextRunner()
-        .withConfiguration(AutoConfigurations.of(InternalGuardAutoConfiguration.class));
+        .withConfiguration(AutoConfigurations.of(InternalTokenAutoConfiguration.class,
+            InternalGuardAutoConfiguration.class));
 
     private final ReactiveWebApplicationContextRunner reactiveRunner =
         new ReactiveWebApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(InternalGuardAutoConfiguration.class));
+            .withConfiguration(AutoConfigurations.of(InternalTokenAutoConfiguration.class,
+                InternalGuardAutoConfiguration.class));
 
     @Test
     @DisplayName("Servlet 应用应装配入站守卫，并绑定内部凭证配置")
@@ -56,8 +59,11 @@ class InternalGuardAutoConfigurationTest {
     @Test
     @DisplayName("反应式（WebFlux）应用不得装配入站守卫（否则会把网关判成 Servlet 应用）")
     void shouldNotConfigureGuardInReactiveApplication() {
-        reactiveRunner.run(context ->
-            assertThat(context).doesNotHaveBean(InternalTokenGuardWebConfig.class));
+        reactiveRunner.run(context -> {
+            assertThat(context).doesNotHaveBean(InternalTokenGuardWebConfig.class);
+            // 但凭证配置必须仍在：出站 Feign 拦截器依赖它，缺了会让 Feign 子上下文启动失败
+            assertThat(context).hasSingleBean(InternalProperties.class);
+        });
     }
 
     @Test

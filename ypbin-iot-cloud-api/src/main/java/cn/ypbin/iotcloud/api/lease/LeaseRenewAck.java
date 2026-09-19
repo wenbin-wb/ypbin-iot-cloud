@@ -15,34 +15,30 @@
  */
 package cn.ypbin.iotcloud.api.lease;
 
-import java.util.List;
+import java.time.LocalDateTime;
 import lombok.Getter;
 import lombok.Setter;
 
 /**
- * 领取租约响应：本次分给该节点的租户及其租约到期时间。
+ * 单个租户的续约回执。
  *
- * <p>同时返回各租户的 {@code epoch}，节点据此执行 §3.1② 的「先订阅、后拉取、按 epoch 准入」。</p>
+ * <p><b>为什么必须逐租户回执</b>：一个节点可同时持有多个租户，各租户的到期时间并不相同。
+ * 若响应只给一个「下次到期时间」，节点就无法更新本地的逐租户 {@code leaseExpireAt}，
+ * 也就无法在续约之后继续用本地时间判断自己是否已经过期（IOT-CLOUD-SPEC.md §3.1① 的依据①）。</p>
  *
  * @author wenbin
  * @since 2026-09-18
  */
 @Getter
 @Setter
-public class LeaseAcquireResp {
+public class LeaseRenewAck {
 
-    /** 节点标识。 */
-    private String accessNode;
+    /** 租户 ID。 */
+    private Long tenantId;
 
-    /** 本次领取到的租户归属。 */
-    private List<LeaseAssignmentDto> assignments = List.of();
+    /** 该租户续约后的新到期时间。 */
+    private LocalDateTime leaseExpireAt;
 
-    /**
-     * 空值兜底的归属列表。
-     *
-     * @return 归属列表，永不为 {@code null}
-     */
-    public List<LeaseAssignmentDto> getAssignments() {
-        return assignments == null ? List.of() : assignments;
-    }
+    /** 该租户当前的台账版本号（节点据此判断自己是否落后）。 */
+    private Long epoch;
 }

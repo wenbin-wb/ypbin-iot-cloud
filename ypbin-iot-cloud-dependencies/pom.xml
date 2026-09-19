@@ -67,6 +67,16 @@
                 <artifactId>ypbin-starter-core</artifactId>
                 <version>${ypbin-starter.version}</version>
             </dependency>
+            <!--
+              统一响应「HTTP 200 + R.code」的全局异常处理器住在 ypbin-starter-web 里
+              （common 只依赖 starter-core，本身不带 Web 层）——P3 起 business 需显式引入它，
+              否则入站守卫抛出的 BusinessException 不会被转成 HTTP 200 + R.code=401。
+            -->
+            <dependency>
+                <groupId>cn.ypbin</groupId>
+                <artifactId>ypbin-starter-web</artifactId>
+                <version>${ypbin-starter.version}</version>
+            </dependency>
 
             <!-- ===== 本仓模块（版本统一由 revision 控制）===== -->
             <dependency>

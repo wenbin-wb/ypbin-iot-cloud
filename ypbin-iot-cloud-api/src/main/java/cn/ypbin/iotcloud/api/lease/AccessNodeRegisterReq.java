@@ -16,6 +16,7 @@
 package cn.ypbin.iotcloud.api.lease;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Positive;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -33,6 +34,7 @@ public class AccessNodeRegisterReq {
     @NotBlank(message = "节点标识不能为空")
     private String accessNode;
 
-    /** 节点可承载的租户上限（为空表示不限，用于单节点全量模式）。 */
+    /** 节点可承载的租户上限（为空表示不限，用于单节点全量模式；给了就必须为正数）。 */
+    @Positive(message = "租户上限必须为正数")
     private Integer maxTenants;
 }

@@ -80,6 +80,10 @@ class SourceConventionTest {
 
     private static final Pattern AUTO_CONFIGURATION = Pattern.compile("@AutoConfiguration\\b");
 
+    /** 合法 FQCN（用于校验 imports 文件内容）。 */
+    private static final Pattern FQCN = Pattern.compile(
+            "[a-zA-Z_$][a-zA-Z\\d_$]*(\\.[a-zA-Z_$][a-zA-Z\\d_$]*)+");
+
     private static final Pattern BEAN_ANNOTATION = Pattern.compile("^\\s*@Bean\\b.*$", Pattern.MULTILINE);
 
     private static final String CONDITIONAL_ON_MISSING_BEAN = "@ConditionalOnMissingBean";
@@ -163,6 +167,51 @@ class SourceConventionTest {
     }
 
     @Test
+    @DisplayName("SRC-05 AutoConfiguration.imports 的每一行必须要么是 # 注释、要么是合法 FQCN")
+    void importsFileMustContainOnlyFqcnOrHashComment() {
+        List<String> violations = new ArrayList<>();
+        for (Path module : modules()) {
+            Path imports = module.resolve(
+                    "src/main/resources/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports");
+            if (!Files.isRegularFile(imports)) {
+                continue;
+            }
+            List<String> lines = readLines(imports);
+            for (int index = 0; index < lines.size(); index++) {
+                String line = lines.get(index).trim();
+                if (line.isEmpty() || line.startsWith("#") || FQCN.matcher(line).matches()) {
+                    continue;
+                }
+                // Spring 的 imports 解析器只按 # 截断注释：/* */ 之类的内容会被当成类名加载
+                // 并导致启动失败（实测：IllegalStateException: Unable to read meta-data for class */）
+                violations.add(REPO_ROOT.relativize(imports) + ":" + (index + 1) + " -> " + line);
+            }
+        }
+        assertThat(violations)
+            .as("imports 文件只允许 FQCN 与 # 注释；其它内容会被 Spring 当成类名去加载")
+            .isEmpty();
+    }
+
+    @Test
+    @DisplayName("SRC-06 安全敏感凭证比较必须走 MessageDigest.isEqual（禁退化成 String.equals）")
+    void internalTokenComparisonMustBeConstantTime() {
+        List<String> violations = new ArrayList<>();
+        for (Path file : mainJavaFiles()) {
+            if (!file.getFileName().toString().equals("InternalTokenGuardInterceptor.java")) {
+                continue;
+            }
+            String code = stripCommentsAndLiterals(read(file));
+            if (!code.contains("MessageDigest.isEqual(")) {
+                violations.add(REPO_ROOT.relativize(file)
+                    + " -> 未使用 MessageDigest.isEqual 进行凭证比较（常量时间比较是硬要求）");
+            }
+        }
+        assertThat(violations)
+            .as("内部凭证比较必须用 MessageDigest.isEqual；退化成 equals 会引入计时侧信道")
+            .isEmpty();
+    }
+
+    @Test
     @DisplayName("SRC-04 每个 @AutoConfiguration 都必须在 AutoConfiguration.imports 中登记")
     void everyAutoConfigurationMustBeRegistered() {
         List<String> violations = new ArrayList<>();
@@ -243,6 +292,18 @@ class SourceConventionTest {
                 stripCommentsAndLiterals("String s = \"@AutoConfiguration\";\n")).find()).isFalse();
         assertThat(AUTO_CONFIGURATION.matcher(stripCommentsAndLiterals(
                 "@AutoConfiguration\npublic class A {}\n")).find()).isTrue();
+
+        // SRC-05/06 规则自检：合法 FQCN 与 # 注释通过；/* */ 与半截注释被拒
+        assertThat(FQCN.matcher("cn.ypbin.iotcloud.common.autoconfigure.InternalTokenAutoConfiguration")
+                .matches()).isTrue();
+        assertThat(FQCN.matcher("/*").matches()).isFalse();
+        assertThat(FQCN.matcher("* Copyright (c) 2024-present").matches()).isFalse();
+        assertThat(FQCN.matcher("*/").matches()).isFalse();
+        assertThat(stripCommentsAndLiterals(
+                "MessageDigest.isEqual(a, b);").contains("MessageDigest.isEqual(")).isTrue();
+        assertThat(stripCommentsAndLiterals(
+                "// 说明：用 MessageDigest.isEqual 比较\nconfigured.equals(presented);")
+                .contains("MessageDigest.isEqual(")).isFalse();
         assertThat(BEAN_ANNOTATION.matcher("    @Bean").matches()).isTrue();
         assertThat(CONDITIONAL_ON_MISSING_BEAN).isNotBlank();
         assertThat(REPO_ROOT.resolve(MODULE_PREFIX + "common")).isDirectory();

@@ -18,6 +18,7 @@ package cn.ypbin.iotcloud.api.lease.config;
 import cn.ypbin.iotcloud.common.config.InternalProperties;
 import feign.Request;
 import feign.RequestInterceptor;
+import feign.Retryer;
 import java.util.concurrent.TimeUnit;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
@@ -67,6 +68,24 @@ public class LeaseFeignConfiguration {
     @ConditionalOnMissingBean
     public RequestInterceptor internalTokenRequestInterceptor(InternalProperties internalProperties) {
         return new InternalTokenRequestInterceptor(internalProperties);
+    }
+
+    /**
+     * <b>显式禁止自动重试</b>。
+     *
+     * <p>不声明它时，Feign 会用默认 {@code Retryer.Default}（maxAttempts=5、period=100ms、maxPeriod=1s）：
+     * 单次续约最坏 ≈ 5×(1s connect + 3s read) + 退避 ≈ <b>21.5s</b>，已经<b>超过 10s 续约周期</b>——
+     * 正是「一次抖动就把自己卡成失效节点、被接管」的形态；而只看读超时的断言发现不了它。</p>
+     *
+     * <p>这里取「不重试」：续约是<b>周期性</b>调用，下一轮（≤10s）本身就会重发，重试只会叠加延迟。
+     * 真正需要重试的场景由调用方在上层做<b>有界</b>重试，并把「续约连续失败」当作 self-fencing 的触发条件之一。</p>
+     *
+     * @return 永不重试的策略
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public Retryer leaseRetryer() {
+        return Retryer.NEVER_RETRY;
     }
 
 }

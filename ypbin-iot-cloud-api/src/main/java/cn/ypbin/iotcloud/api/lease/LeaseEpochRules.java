@@ -76,13 +76,51 @@ public final class LeaseEpochRules {
     }
 
     /**
-     * self-fencing 判据：租约是否已不再有效。
+     * self-fencing 判据（仅看状态）：租约是否已不再有效。
      *
-     * @param state 租约状态
-     * @return 非 {@link LeaseState#ACTIVE} 时返回 {@code true}（节点必须立即断链并停止采集）
+     * <p>⚠️ <b>单独使用会漏判</b>：状态仍是 {@code ACTIVE} 但 {@code leaseExpireAt} 已过期的租约，
+     * 本方法返回 {@code false}。判断「是否必须 fencing」请用
+     * {@link #needsSelfFence(LeaseState, LocalDateTime, LocalDateTime)}（状态与到期时间的组合判据）。</p>
+     *
+     * @param state 租约状态（{@code null} 视为无效，fail-safe）
+     * @return 非 {@link LeaseState#ACTIVE} 时返回 {@code true}
      */
     public static boolean shouldFence(LeaseState state) {
         return state != LeaseState.ACTIVE;
+    }
+
+    /**
+     * self-fencing 的<b>完整组合判据</b>（IOT-CLOUD-SPEC.md §3.1① 的硬要求）：
+     * 状态失效 <b>或</b> 租约已过期，二者取或。
+     *
+     * <p>为什么要封装成单一方法：只判状态会漏掉「ACTIVE 但已过期」（长 GC 停顿/网络分区下正是这种形态），
+     * 只判到期时间会漏掉「被 business 撤销但尚未到期」。调用方只该用这一个入口。</p>
+     *
+     * @param state         租约状态（{@code null} 视为失效）
+     * @param leaseExpireAt 租约到期时间（{@code null} 视为已失效——拿不到到期时间就不该继续采集）
+     * @param now           当前时间
+     * @return 必须断链停采时返回 {@code true}
+     */
+    public static boolean needsSelfFence(LeaseState state, LocalDateTime leaseExpireAt,
+            LocalDateTime now) {
+        if (shouldFence(state)) {
+            return true;
+        }
+        return leaseExpireAt == null || isLeaseExpired(leaseExpireAt, now);
+    }
+
+    /**
+     * 快照采用后的事件回放判据（§3.1② 第Ⅲ步）：仅回放版本<b>严格新于快照</b>的事件。
+     *
+     * <p>拉取快照期间到达的事件必须缓存（不得直接应用），采用快照后再按本判据回放，
+     * 否则会被旧快照覆盖掉订阅期间的新变更。</p>
+     *
+     * @param snapshotEpoch 已采用快照的版本号
+     * @param eventEpoch    缓存事件的版本号
+     * @return 应回放时返回 {@code true}
+     */
+    public static boolean shouldReplayAfterSnapshot(long snapshotEpoch, long eventEpoch) {
+        return eventEpoch > snapshotEpoch;
     }
 
     /**

@@ -15,6 +15,7 @@
  */
 package cn.ypbin.iotcloud.api.lease;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import lombok.Getter;
 import lombok.Setter;
@@ -32,6 +33,24 @@ import lombok.Setter;
 @Setter
 public class TenantEpochBatchResp {
 
-    /** 全部租户的版本号（空集合表示暂无租户，绝不为 null）。 */
+    /** 全部租户的版本号。 */
     private List<TenantEpochItem> items = List.of();
+
+    /**
+     * 本次读取的完成时间（由 business 填写）。
+     *
+     * <p><b>为什么要它</b>：这是无分页的全量读，并发变更下会出现「撕裂读」——
+     * 一部分租户是新值、一部分是旧值，节点据此对账会判定出**假不一致**。
+     * 节点可用它做「读取时间之后是否又变过」的二次确认，并在日志/健康度里暴露撕裂读。</p>
+     */
+    private LocalDateTime readAt;
+
+    /**
+     * 空值兜底的版本号列表。
+     *
+     * @return 版本号条目，永不为 {@code null}
+     */
+    public List<TenantEpochItem> getItems() {
+        return items == null ? List.of() : items;
+    }
 }

@@ -65,6 +65,15 @@ class LeaseFeignConfigurationTest {
     }
 
     @Test
+    @DisplayName("必须显式声明不重试：默认 Retryer 会重试 5 次，最坏 21.5s > 10s 续约周期")
+    void retryerMustBeDeclaredAndNotRetry() {
+        feign.Retryer retryer = configuration.leaseRetryer();
+        assertThat(retryer).isSameAs(feign.Retryer.NEVER_RETRY);
+        // 说明：NEVER_RETRY 的 maxAttempts=1；若换成 Retryer.Default()，就是 5 次重试
+        assertThat(retryer.clone().toString()).isNotBlank();
+    }
+
+    @Test
     @DisplayName("拦截器 Bean 使用传入的凭证配置（装配正确）")
     void interceptorBeanShouldUseProperties() {
         InternalProperties properties = new InternalProperties();

@@ -35,7 +35,12 @@ public class LeaseReleaseReq {
     @NotBlank(message = "节点标识不能为空")
     private String accessNode;
 
-    /** 要释放的租户 ID（空集合表示释放该节点全部租户，绝不为 null）。 */
+    /**
+     * 要释放的租户 ID。
+     *
+     * <p><b>不得为空</b>：节点自己知道持有哪些租户，应显式列出；这样「空集合」就不会有一个
+     * 「释放全部」的隐藏语义（隐藏语义在分布式下极易被误解为「什么都没释放」）。</p>
+     */
     @NotEmpty(message = "释放的租户不能为空")
     private List<Long> tenantIds;
 }

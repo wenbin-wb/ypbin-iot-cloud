@@ -64,8 +64,10 @@ mvn -B -ntp -Pit verify                     # 集成测试（M0a 只有占位 IT
 tools/preflight.sh                          # 一次性总检
 ```
 
-**已接入（第一批）**：① ArchUnit（含规则有效性自检） ② 源码规范 ③ 模块发布边界 ④ spotless
-⑤ JaCoCo 覆盖率门禁 ⑥ CI `mvn -B -ntp clean verify`。
+**已接入（第一批）**：① ArchUnit（含规则有效性自检） ② 源码规范（SRC-01~**06**：内联 FQCN / ordinal /
+`@Bean` 可覆盖 / `@AutoConfiguration` 登记 / **imports 文件格式** / **凭证比较必须 `MessageDigest.isEqual`**）
+③ 模块发布边界 ④ spotless ⑤ JaCoCo 覆盖率门禁 ⑥ CI `mvn -B -ntp clean verify`
+⑦ 网关的 `WebApplicationType.deduce()==REACTIVE`（防 servlet 栈泄漏进 WebFlux 网关）。
 
 > 覆盖率阈值**保持 spec §9.1 第 9 项原值：指令 ≥ 0.80 / 分支 ≥ 0.64**（不放宽阈值）。
 > 曾一度想为「骨架期」把它降到 0.30，实测没必要：真正被度量的模块（有测试的）覆盖率高，
@@ -91,7 +93,11 @@ SBOM（`-Psbom`）、preflight 全量。依据 spec §9.1 与 §10 的 M0b「13 
    空快照会把文档里的覆盖率变成永远为零的假数据。M0b 首次生成。
 4. **`access` 还没有接 iot-starter**（P4），M0a 只验证第三单元能被单独启动与探活。
 5. **端口 18080/18081/18082 是 M0a 占位值**，P2/P5 与本地五进程形态对齐时复核。
-6. **三个部署单元的 `mvn package` 目前只产出瘦 jar**（实测 2026-09-18：`mvn -B -ntp clean verify`
+6. **入站守卫的 HTTP 200 信封依赖宿主**：守卫抛 `BusinessException`，把它转成
+   HTTP 200 + `R.code=401` 的全局异常处理器在 **`ypbin-starter-web`** 里，而 `common` 只依赖
+   `starter-core` → **P3 起 business 必须显式引入 `ypbin-starter-web`**（版本已在 `-dependencies` 预管）。
+   P1 阶段只验证到「抛对的业务异常码」。
+7. **三个部署单元的 `mvn package` 目前只产出瘦 jar**（实测 2026-09-18：`mvn -B -ntp clean verify`
    里没有任何 `repackage` 输出）。原因：pom 只声明了 `spring-boot-maven-plugin`，而父 pom 链里
    **没有** Boot 的 pluginManagement，声明插件不会自动绑定 `repackage`（BOM import 不传递 pluginManagement）。
    影响：`mvn spring-boot:run` 可用，`java -jar` 不可用。P5/P2 加可执行 jar 时注意
