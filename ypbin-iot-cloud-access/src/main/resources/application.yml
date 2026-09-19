@@ -1,16 +1,40 @@
-# 部署单元③ 设备接入（M0a 骨架，有状态单元）。
+# 部署单元③ 设备接入（有状态单元）。P4：租约领取/续约 + self-fencing 落地。
 #
-# P0 不接 ypbin-iot-starter、不接 EMQX、不接数据库：只有应用名与端口。
-# 采集链路、租约领取/续约（默认 10s）与 self-fencing 状态机在 P4 落地（IOT-CLOUD-SPEC.md §3.1①）。
+# M0a 仍不接协议栈（ypbin-iot-bom 未发布）、不接 EMQX、不接数据库：
+# 链路管理现在只做「谁在采/谁必须停」的状态标记与日志，判定语义（spec §3.1①）已完整。
 server:
   port: 18082
 
 spring:
   application:
     name: ypbin-iot-cloud-access
+  cloud:
+    # M0a 关 Nacos（spec §4.5）：Feign 用 simple 发现解析 business 实例地址
+    discovery:
+      client:
+        simple:
+          instances:
+            ypbin-iot-cloud-business:
+              - uri: ${IOT_CLOUD_BUSINESS_URI:http://localhost:18081}
+
+ypbin:
+  internal:
+    # 出站携带的内部凭证（与 business 守卫同一份；未配置时 business 会 fail-closed 拒绝）
+    token: ${YPBIN_INTERNAL_TOKEN:}
+  access:
+    # 节点标识：租约归属的键。必须唯一（启动自检会拒绝空值）
+    node-id: ${HOSTNAME:access-local}
+    # 最多带多少租户；留空 = 不限（自用单节点全量，spec §3.1①）
+    capacity:
+    # 续约周期：必须 ≥ 一次续约最坏耗时（connect 1s + read 3s）的 2 倍，启动自检会拒绝太小
+    renew-interval-ms: 10000
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,metrics
+  # 指标里带上应用标签，便于区分多个 access 副本
+  metrics:
+    tags:
+      application: ${spring.application.name}
