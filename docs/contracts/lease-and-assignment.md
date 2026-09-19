@@ -35,16 +35,23 @@ business 用 **租约 + 失效检测 + 两阶段接管**保证「同一时刻只
 ```
         register+acquire
    ────────────────────────► ACTIVE ──────────release──────────► RELEASED
-                              │  ▲                                  ▲
-              lease_expire_at │  │ 新节点接管（撤销旧租约 + 写新归属）  │
-              到期未被续约      ▼  │                                  │
+                              │  ▲  ▲                               ▲
+              lease_expire_at │  │  │ ② 已过期但仍 ACTIVE：          │
+              到期未被续约      ▼  │  │    可直接被新节点领走           │
                         PENDING_TAKEOVER ──────────────────────────┘
+                                 │  │
+                                 └──┴── ① 新节点接管（换节点 + epoch + 1）
 ```
 
 - **`ACTIVE`**：节点正在采集，租约未到期。
 - **`PENDING_TAKEOVER`**：`lease_expire_at < now`，business 扫描判定节点死亡后置入。
   **没有这个状态，"节点退出 → 待接管" 永远不会被触发，租户会静默离线**（spec §3.1① 点名的 v3 缺口）。
 - **`RELEASED`**：正常下线归还。
+- **两条真实存在的接管边（实现里都支持，缺一不可）**：
+  1. `PENDING_TAKEOVER` → `ACTIVE`（新节点接管，**epoch + 1**）——失效扫描已经判定过；
+  2. `ACTIVE`（已过期）→ `ACTIVE`（新节点接管，**epoch + 1**）——旧节点可能已死而扫描还没跑到；
+     直接领走是安全的：旧节点即使还活着，它自己的租约也已过期，续约时会被明确告知撤销并 self-fencing。
+- **`RELEASED` → `ACTIVE`**：正常释放后的再分配，**不递增 epoch**（台账没变）；⚠️ 这条对 §3.1② 的快照准入有影响，见 ADR-0001 §4。
 
 ---
 
@@ -54,7 +61,7 @@ business 用 **租约 + 失效检测 + 两阶段接管**保证「同一时刻只
 |---|---|---|
 | 快照准入 | 仅 `snapshot.epoch > local.epoch` 才可采用快照 | `LeaseEpochRules.shouldAdoptSnapshot` |
 | 事件应用 | 仅 `event.epoch > local.epoch` 才应用；相等或更旧**丢弃** | `LeaseEpochRules.shouldApplyEvent` |
-| 单调递增 | 台账变更与 `epoch + 1` **在同一事务**；到上限显式失败（不许回绕） | `LeaseEpochRules.nextEpoch` |
+| 单调递增 | 台账变更与 `epoch + 1` **在同一事务**；到上限显式失败（不许回绕） | `LeaseEpochRules.nextEpoch` **只是纯函数**（算下一个值 + 上限校验）；「同事务」由调用方保证——M0a 无事务（见 ADR-0001 §2.1 的 M0b 必办） |
 | 对账判据 | **只用 epoch**（设备数在「改参数」「删一台又加一台」时不变，会假阴性） | spec §3.1③ |
 
 > **为什么必须同事务**：不同事务会造出「变更成功但 epoch 没涨」的状态，此时周期对账**永远看不出差异**——
@@ -93,7 +100,7 @@ business 用 **租约 + 失效检测 + 两阶段接管**保证「同一时刻只
 
 ---
 
-## 6. 调用侧硬约束（已在代码中固化）
+## 6. 调用侧硬约束（逐条标注落地状态）
 
 | 约束 | 值/做法 | 出处 |
 |---|---|---|
@@ -103,7 +110,11 @@ business 用 **租约 + 失效检测 + 两阶段接管**保证「同一时刻只
 | 网关剥离 | 网关剥离名单**必须显式包含** `X-Gateway-Signed`（starter 默认名单不含它） | spec §4.4-2（P2 落实） |
 | 响应体 | 一律 HTTP 200 + `R.code`；集合字段**永不为 null**（默认空集合，显式置 null 也被 getter 兜底为空集合，有测试锁定） | 本契约 DTO |
 | 重试 | **显式 `Retryer.NEVER_RETRY`**：默认 `Retryer.Default` 是 5 次重试，单次续约最坏 ≈21.5s > 10s 周期，会把节点卡成失效；续约靠下一轮自然重发，需要重试的场景由上层做**有界**重试 | `LeaseFeignConfiguration` |
-| 超时/重试的宿主覆盖 | 两个 Bean 都是 `@ConditionalOnMissingBean`（`SearchStrategy.ALL`，宿主在祖先链任意位置定义即可覆盖）：**覆盖即自负「不得让单次续约跨过周期」的责任**；P3/P4 应加启动期校验/告警把这条提醒变成可执行约束 | `LeaseFeignConfiguration` + 独立复核 §4 |
+| 超时/重试的宿主覆盖 | 两个 Bean 都是 `@ConditionalOnMissingBean`（`SearchStrategy.ALL`，宿主在祖先链任意位置定义即可覆盖）：**覆盖即自负「不得让单次续约跨过周期」的责任** | `LeaseFeignConfiguration` + 独立复核 §4 |
+| 启动期校验（服务端侧） | ✅ **P3 已落地**：business 启动时校验 `ypbin.lease.ttl > ypbin.lease.expected-renew-interval`（不满足记 ERROR），并在「未配内部凭证」「可分配租户为空」时各记一条 WARN —— 后者正是「租约链路在默认配置下空跑」这个坑 | `BusinessStartupChecker` |
+| 启动期校验（**客户端侧**，P4 必办） | ⏳ 未落地：access 接上 Feign 后，必须校验「单次续约最坏耗时（connect+read×重试）< 续约周期」，覆盖 `LeaseFeignConfiguration` 的宿主同样要过这道校验 | 待 P4 |
+| **服务端可被关闭**（`ypbin.lease.enabled=false`） | 关掉时 `LeaseService`/`InMemoryLeaseStore`/`LeaseExpiryScanner`/`InternalLeaseController` **全部不装配**，`/internal/lease/**` 不注册（请求得到「接口不存在」的信封；**此时不带令牌也是 404**，因为没有 handler、拦截器根本不执行——不要在关闭模式下把 401 当诊断依据） | 控制器 Javadoc + `BusinessWithoutLeaseContextTest` |
+| **调用方（P4 access）必办** | `register` 的任何非 `code=200`（含上面的 404）**必须当作启动失败**：本契约里 register 是「开始采集」的前置，失败即不得建链。把 404 当成可重试/参数错会让 fail-fast 落空 | 本条为 P4 硬要求 |
 | HTTP 200 信封的前提 | `BusinessException → HTTP 200 + R.code=401` 由 **`ypbin-starter-web` 的全局异常处理器**完成；`common` 只依赖 `starter-core` → **P3 起 business 必须显式引入 `ypbin-starter-web`**（版本已在 `-dependencies` 预管） | 独立复核 F8 |
 | 时间假设 | 到期判断用 `LocalDateTime` 直接比较，**隐含「各部署单元同时区且 NTP 同步」**；跨时区部署需改 `Instant`（spec §6 允许协议时序用 `Instant`） | 独立复核 |
 

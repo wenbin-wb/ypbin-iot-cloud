@@ -71,9 +71,9 @@ class GatewayConfigBindingTest {
     void sanitizeHeadersMustIncludeTrustedSourceHeader() {
         assertThat(gatewayProperties.getHeaderSanitize().isEnabled()).isTrue();
         assertThat(gatewayProperties.getHeaderSanitize().getHeaders())
-            .as("不追加 X-Gateway-Signed 会让客户端自带的该头穿透下游校验")
+            .as("不追加 X-Gateway-Signed / X-Internal-Token 会让客户端自带的这两个头穿透下游校验")
             .contains("X-User-Id", "X-User-Name", "X-Tenant-Id", "X-Dept-Id", "X-Roles",
-                "X-Gateway-Signed");
+                "X-Gateway-Signed", "X-Internal-Token");
     }
 
     @Test

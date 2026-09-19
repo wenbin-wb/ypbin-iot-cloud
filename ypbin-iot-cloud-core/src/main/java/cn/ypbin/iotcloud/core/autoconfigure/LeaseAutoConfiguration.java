@@ -22,7 +22,6 @@ import cn.ypbin.iotcloud.core.lease.LeaseService;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 
 /**
@@ -31,6 +30,11 @@ import org.springframework.context.annotation.Bean;
  * <p>只有 {@code ypbin.lease.enabled=false} 时才整体不装配：租约维护是 business 的核心职责之一，
  * 关掉它只应出现在「本地只跑业务接口」的场景。</p>
  *
+ * <p>⚠️ <b>属性 bean 不在这里注册</b>：{@link LeaseProperties} 由无条件的
+ * {@link LeasePropertiesAutoConfiguration} 提供。若把 {@code @EnableConfigurationProperties}
+ * 放在本类上，{@code enabled=false} 会让属性 bean 一起消失，导致任何注入它的组件（如 business 的
+ * 启动自检）**启动失败**——「关掉租约」就变成了「把服务弄挂」（独立复核实测过一次）。</p>
+ *
  * <p>三个 bean 都是 {@code @ConditionalOnMissingBean}：M0b 换成数据库实现（或测试里换成假实现）时，
  * 宿主只要自己声明同类型 bean 即可覆盖，不需要改这里。</p>
  *
@@ -38,7 +42,6 @@ import org.springframework.context.annotation.Bean;
  * @since 2026-09-19
  */
 @AutoConfiguration
-@EnableConfigurationProperties(LeaseProperties.class)
 @ConditionalOnProperty(prefix = LeaseProperties.PREFIX, name = "enabled", havingValue = "true",
     matchIfMissing = true)
 public class LeaseAutoConfiguration {

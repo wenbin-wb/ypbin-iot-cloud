@@ -1,4 +1,6 @@
 # ypbin-iot-cloud core 自动配置登记（Spring Boot 的 AutoConfiguration.imports 格式）
 # 注意：本文件只允许 FQCN 与 # 开头的注释；**不要**放其他内容——
 # Spring 的解析器只按 # 截断注释，/* */ 会被当成类名去加载并导致启动失败（已由门禁兜底）。
+# 属性注册必须**无条件**（enabled=false 时属性 bean 也必须存在，否则注入它的组件会让应用起不来）
+cn.ypbin.iotcloud.core.autoconfigure.LeasePropertiesAutoConfiguration
 cn.ypbin.iotcloud.core.autoconfigure.LeaseAutoConfiguration

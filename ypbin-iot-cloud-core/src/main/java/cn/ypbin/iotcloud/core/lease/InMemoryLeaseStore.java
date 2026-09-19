@@ -31,9 +31,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * 但**多副本 business 之间不共享**。M0b 换成 {@code tenant_node_assignment} 表时，
  * 失效扫描必须改成「单写者 / 原子 UPDATE」形态（见 ADR-0001），否则 N 个副本会同时判定同一批租约。</p>
  *
- * <p>线程安全：内部三个 Map 都是 {@link ConcurrentHashMap}；但「读-改-写」的组合操作
- * （如 {@link LeaseService#acquire(String)}）**不是原子的**——M0a 单副本够用，
- * M0b 换表后由数据库事务保证。</p>
+ * <p><b>线程安全</b>：内部三个 Map 都是 {@link ConcurrentHashMap}，单次读写原子；但「读-改-写」的
+ * 复合操作（{@link LeaseService#acquire(String)} 等）**不是原子的，而且单副本下也不原子**——
+ * 独立复核曾在单进程内用两个并发请求复现「同一租户被同时分给两个节点、双方 epoch 相同」。
+ * 因此 {@link LeaseService} 用进程内互斥锁把「判定 + 写入」整体串起来；M0b 换成共享表后，
+ * 跨副本的互斥必须由数据库事务/行锁保证（ADR-0001）。</p>
  *
  * @author wenbin
  * @since 2026-09-19
@@ -43,13 +45,21 @@ public class InMemoryLeaseStore {
     /** 首次出现在系统里的租户的台账版本号。 */
     static final long INITIAL_EPOCH = 1L;
 
+    /** 不限容量的哨兵值：注册时未给容量表示单节点全量模式（spec §3.1①）。 */
+    static final int UNLIMITED_CAPACITY = Integer.MAX_VALUE;
+
     private final Map<Long, LeaseAssignment> assignments = new ConcurrentHashMap<>();
     private final Map<String, Integer> nodeCapacities = new ConcurrentHashMap<>();
     private final Map<Long, Long> tenantEpochs = new ConcurrentHashMap<>();
 
-    /** 注册（或刷新）节点容量；幂等。 */
-    public void registerNode(String accessNode, int maxTenants) {
-        nodeCapacities.put(accessNode, maxTenants);
+    /**
+     * 注册（或刷新）节点容量；幂等。
+     *
+     * @param accessNode 节点标识
+     * @param maxTenants 容量；<b>为空表示不限</b>（用 {@link #UNLIMITED_CAPACITY} 承载）
+     */
+    public void registerNode(String accessNode, Integer maxTenants) {
+        nodeCapacities.put(accessNode, maxTenants == null ? UNLIMITED_CAPACITY : maxTenants);
     }
 
     /** 节点是否已注册。 */
@@ -93,9 +103,8 @@ public class InMemoryLeaseStore {
      * {@link LeaseService} 的接管分支）；M0b 换表后二者进同一事务。</p>
      */
     public long nextEpoch(Long tenantId) {
-        long next = LeaseEpochRules.nextEpoch(currentEpoch(tenantId));
-        tenantEpochs.put(tenantId, next);
-        return next;
+        return tenantEpochs.compute(tenantId,
+            (key, current) -> LeaseEpochRules.nextEpoch(current == null ? INITIAL_EPOCH : current));
     }
 
     /** 已知租户集合（出现过归属或版本号的）。 */

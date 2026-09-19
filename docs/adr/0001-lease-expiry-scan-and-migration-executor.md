@@ -22,7 +22,13 @@ M0a 还没有台账表（迁移在 M0b 定稿），但**这两条决策必须在
 ### 2.1 租约失效扫描：M0a 进程内，M0b 改成「单条原子 UPDATE」
 
 - **M0a（现在）**：`core` 的 `LeaseExpiryScanner` 用 `@Scheduled` + **内存** 归属表（`InMemoryLeaseStore`）扫描过期租约并置为 `PENDING_TAKEOVER`。
-  - 前提写清楚：**M0a 的归属状态不跨副本共享**，因此这份实现只在「单 business 副本」下语义完整。
+  - **⚠️ 单副本也要进程内互斥（本节曾被实测推翻过一次，务必读）**：最初的版本认为「单副本语义完整、只有多副本才需要担心」——
+    独立复核在**单进程内用两个并发请求**复现了「同一租户被同时分给两个节点、双方 epoch 相同」（60 轮中 12 轮），
+    而两个都自认 owner 的 access 节点会**同时轮询同一台设备**（对 Modbus/OPC UA 的控制写会直接影响现场）。
+    根因是 `acquire` 的「读快照 → 判定 → 写」不是原子的，`nextEpoch` 也是非原子的读-改-写。
+    **现在的实现**：`LeaseService` 用公平 `ReentrantLock` 把「判定 + 写入」整体串起来（`acquire`/`renew`/`release`/`markExpired`），
+    `nextEpoch` 用 `Map.compute` 原子化，并有一条「2 线程 × 200 轮」的用例——**去掉锁立即转红**（复核与我都验证过）。
+  - M0a 归属状态**不跨副本共享**：多副本 business 各看各的内存，语义不完整（这是 M0a 的已知边界）。
   - 语义部分（谁过期、置成什么状态、接管要不要递增 epoch）全部在 `LeaseService` 里，与调度器和存储解耦，M0b 换存储时**判定逻辑不用重写**。
 - **M0b（必办）**：扫描改成**一条原子语句**，不做「读列表 → 循环 → 写回」：
 
@@ -36,6 +42,11 @@ M0a 还没有台账表（迁移在 M0b 定稿），但**这两条决策必须在
   - 原子性由数据库保证：N 个副本同时执行也只会各改到自己那一批，不会互相覆盖；
   - 需要「恰好一次副作用」（例如发事件、写审计）时，**不要**靠应用层去重，而应让数据库**返回受影响行**（或 `RETURNING`/“选中并加锁”），拿到行的那个副本才有资格产生副作用；
   - 若将来需要严格的单执行者，用**租约式的调度锁**（专门一行锁记录 + `SELECT ... FOR UPDATE` / 带过期时间的 leader 行）——不要用「启动时抢一次」的内存标记，副本重启就失效。
+  - **归属变更与 epoch 递增必须同事务**（spec §3.1③）：M0a 没有事务，`nextEpoch` 与归属写入是两次独立写
+    （代码里只保证「顺序紧挨着」，并注明 M0b 进同一事务）；换表后必须由数据库事务保证——
+    否则会出现「归属变了但 epoch 没涨」，让 access 的周期对账**永远看不出差异**。
+  - **`acquire` 的容量分配也必须原子**：M0b 的领取要落在「一条 `UPDATE ... WHERE state='released' AND tenant_id IN (...)`（或 `SELECT ... FOR UPDATE` 后在事务内写入）」上，
+    不能沿用「先查一遍再逐个写」——单副本下它就出过双主（见上）。
 
 ### 2.2 数据库迁移：一次性作业执行，`business` 永不执行迁移
 
@@ -56,9 +67,13 @@ M0a 还没有台账表（迁移在 M0b 定稿），但**这两条决策必须在
 
 | 影响 | 说明 |
 |---|---|
-| M0a 不能多副本跑 business | 归属状态在内存里、不共享。验收（P3/P5）都在单副本形态下进行 |
+| M0a 的归属状态不跨副本 | 状态在内存里、不共享；且**单副本也需要进程内互斥**（已用 `ReentrantLock` 实现，见 §2.1）。验收（P3/P5）都在单副本形态下进行 |
+| 归属 epoch ≠ 台账（配置）epoch | 本 ADR 与实现里的 epoch 是**归属版本号**（接管时 +1，用于让旧节点察觉被接管），而 spec §5 的 `tenant_config_epoch` 是**配置变更版本号**（事件/快照准入用）。M0b 接台账表时必须明确两者的关系（建议：归属表独立 epoch，不要与配置 epoch 混用一行） |
+| **「释放 → 再分配」不递增 epoch** | 这是有意设计（正常下线不是台账变更），但它意味着**换 owner 也可能是同 epoch**：若新 owner 本地已有同号快照，§3.1② 的 `snapshot.epoch > local.epoch` 会拒绝采用刚领到的快照。M0b 接快照通路时必须处理（要么释放-再分配也递增、要么让快照准入不依赖归属 epoch） |
+| 网关侧封堵内部端点 | 网关路由是 `Path=/business/**` + `StripPrefix=1`，会把 `/business/internal/**` 改写成下游的 `/internal/**` ⇒ 网关必须显式拒绝含 `/internal/` 的路径（`InternalPathBlockFilter`），并把 `X-Internal-Token` 加进剥离名单 |
+| 容量可缺省 | `register` 的 `maxTenants` 为空表示**不限**（自用单节点全量，spec §3.1①）；M0b 换表后该语义要保持可表达 |
 | `business` 需要 `@EnableScheduling` | 扫描器由 core 提供，调度开关在 business 启动类上（避免库模块自己开全局调度） |
-| M0b 必办清单 | ① 建 `tenant_node_assignment` 表并把 `InMemoryLeaseStore` 换成数据库实现（保留 `LeaseService` 的判定逻辑）；② 扫描改原子 UPDATE + 受影响行驱动副作用；③ 迁移作业 + schema 版本校验 + `deploy/sql` 漂移门禁 |
+| M0b 必办清单 | ① 建 `tenant_node_assignment` 表并把 `InMemoryLeaseStore` 换成数据库实现（保留 `LeaseService` 的判定逻辑）；② 扫描改原子 UPDATE + 受影响行驱动副作用；③ 迁移作业 + schema 版本校验 + `deploy/sql` 漂移门禁；④ **归属变更与 epoch 递增必须同事务**（§2.1，否则会出现「归属变了 epoch 没涨」，让 access 的对账永远看不出差异）；⑤ **`acquire` 的容量分配必须原子**（§2.1，M0a 在单副本下就出过双主：不能沿用「先查一遍再逐个写」）；⑥ 给「**释放→再分配不涨 epoch**」与 §3.1② 快照准入（`snapshot.epoch > local.epoch`）的关系一个明确结论（要么释放-再分配也递增，要么让快照准入不依赖归属 epoch） |
 
 ## 5. 未采纳的选项
 
