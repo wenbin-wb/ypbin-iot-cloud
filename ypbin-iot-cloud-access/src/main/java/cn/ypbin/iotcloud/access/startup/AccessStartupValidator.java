@@ -21,6 +21,7 @@ import cn.ypbin.starter.core.util.LogSanitizer;
 import feign.Request;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
@@ -95,14 +96,22 @@ public class AccessStartupValidator implements InitializingBean {
                 + ".acquire-interval-ms 必须为正数（当前 " + properties.getAcquireIntervalMs()
                 + "）：为 0 会让每个调度 tick 都重领一次");
         }
+        // 残余窗口加固（复核建议）：重领间隔若小于「一次续约/领取的最坏耗时」，
+        // 调度器可能在握手 acquire 还没回来时就到点重领一次（同一 nodeId、幂等，无安全影响，
+        // 但会重复 RPC 并让指标虚增）。默认 15s ≥ 8s 通过。
+        if (properties.getAcquireIntervalMs() > 0 && properties.getAcquireIntervalMs() < worstCaseMs()) {
+            issues.add(AccessProperties.PREFIX + ".acquire-interval-ms（" + properties.getAcquireIntervalMs()
+                + "ms）必须 ≥ 一次调用的最坏耗时(" + worstCaseMs()
+                + "ms)：否则握手 acquire 还在飞行时就到点重领，造成重复 RPC 与指标虚增");
+        }
         long required = (long) worstCaseMs() * SAFETY_FACTOR;
         if (properties.getRenewIntervalMs() < required) {
             issues.add(AccessProperties.PREFIX + ".renew-interval-ms（" + properties.getRenewIntervalMs()
-                + "ms）必须 ≥ 一次续约最坏耗时（connect " + LeaseFeignConfiguration.CONNECT_TIMEOUT_MS
-                + "ms + read " + LeaseFeignConfiguration.READ_TIMEOUT_MS + "ms = " + worstCaseMs()
+                + "ms）必须 ≥ 一次续约最坏耗时（connect " + optionsOrDefault().connectTimeoutMillis()
+                + "ms + read " + optionsOrDefault().readTimeoutMillis() + "ms = " + worstCaseMs()
                 + "ms）的 " + SAFETY_FACTOR + " 倍（即 ≥" + required
                 + "ms）：否则一次卡顿就会让续约跨过到期时间、把自己卡成失效节点；"
-                + "若覆盖了 LeaseFeignConfiguration 的超时，请同步调整本值");
+                + "若覆盖了 Feign 超时，请同步调整本值");
         }
         return issues;
     }
@@ -116,10 +125,24 @@ public class AccessStartupValidator implements InitializingBean {
      * 主上下文里没有该 Bean 时才回落到契约常量（Feign 子上下文里的默认值就是这两个常量）。</p>
      */
     private int worstCaseMs() {
+        Request.Options options = optionsOrDefault();
+        return options.connectTimeoutMillis() + options.readTimeoutMillis();
+    }
+
+    /**
+     * 生效的超时配置：主上下文有就用它，没有就用契约常量兜一个等价对象。
+     *
+     * <p>用于让<b>报错消息里的分解与实际取值一致</b>（复核指出：宿主把 read 覆盖成 30s 时，
+     * 旧消息仍打印「read 3000ms」而总和是 31000ms，运维会看糊涂）。</p>
+     *
+     * @return 生效的 Feign 超时配置
+     */
+    private Request.Options optionsOrDefault() {
         Request.Options options = requestOptions.getIfAvailable();
         if (options != null) {
-            return options.connectTimeoutMillis() + options.readTimeoutMillis();
+            return options;
         }
-        return LeaseFeignConfiguration.CONNECT_TIMEOUT_MS + LeaseFeignConfiguration.READ_TIMEOUT_MS;
+        return new Request.Options(LeaseFeignConfiguration.CONNECT_TIMEOUT_MS, TimeUnit.MILLISECONDS,
+            LeaseFeignConfiguration.READ_TIMEOUT_MS, TimeUnit.MILLISECONDS, true);
     }
 }

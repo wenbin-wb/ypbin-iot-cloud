@@ -270,6 +270,57 @@ class SourceConventionTest {
     }
 
     @Test
+    @DisplayName("SRC-07 可替换的端口实现不得标 @Component（必须由自动配置以 @ConditionalOnMissingBean 装配）")
+    void replaceablePortImplementationsMustNotBeScannedComponents() {
+        List<String> violations = new ArrayList<>();
+        int scanned = 0;
+        for (Path file : mainJavaFiles()) {
+            String code = stripCommentsAndLiterals(read(file));
+            if (!implementsReplaceablePort(code)) {
+                continue;
+            }
+            scanned++;
+            if (isScannedComponent(code)) {
+                violations.add(REPO_ROOT.relativize(file)
+                    + " -> 端口实现标了 @Component：宿主再定义自己的实现会 NoUniqueBeanDefinitionException"
+                    + "（@ConditionalOnMissingBean 的顺序保证只有 @AutoConfiguration 才有）");
+            }
+        }
+        // 教训（母仓教训七/八）：必须证明真的扫到了目标，否则规则是空跑
+        assertThat(scanned)
+            .as("必须至少扫到一个可替换端口的实现，否则本规则是空跑")
+            .isPositive();
+        assertThat(violations)
+            .as("可替换端口的实现必须由 @Bean @ConditionalOnMissingBean 提供，否则「宿主可替换」是假缝")
+            .isEmpty();
+    }
+
+    /**
+     * 是否是「可替换端口」的实现（按<b>语义</b>识别，不按文件名）。
+     *
+     * <p>约定：这类实现必须由 {@code @AutoConfiguration} 里的 {@code @Bean @ConditionalOnMissingBean}
+     * 装配。判据是「实现了接口」+「接口名以 {@code Manager} 结尾且出现在接口清单里」太脆弱，
+     * 因此这里用一条更朴素的约定：源码里出现 {@code implements TenantLinkManager}
+     * （本仓当前的替换缝；将来新增替换缝时同步扩展本谓词，并保留「至少扫到一个」的自检）。</p>
+     *
+     * @param strippedCode 已剥离注释与字面量的源码
+     * @return 是可替换端口实现时返回 {@code true}
+     */
+    static boolean implementsReplaceablePort(String strippedCode) {
+        return strippedCode.contains("implements TenantLinkManager");
+    }
+
+    /**
+     * 是否被组件扫描接管（{@code @Component}）。
+     *
+     * @param strippedCode 已剥离注释与字面量的源码
+     * @return 标了 {@code @Component} 时返回 {@code true}
+     */
+    static boolean isScannedComponent(String strippedCode) {
+        return strippedCode.contains("@Component");
+    }
+
+    @Test
     @DisplayName("SRC-04 每个 @AutoConfiguration 都必须在 AutoConfiguration.imports 中登记")
     void everyAutoConfigurationMustBeRegistered() {
         List<String> violations = new ArrayList<>();
@@ -338,7 +389,7 @@ class SourceConventionTest {
     }
 
     @Test
-    @DisplayName("SELF-03 自检样本必须覆盖全部四条规则与仓库根目录")
+    @DisplayName("SELF-03 自检样本必须覆盖全部规则与仓库根目录")
     void selfCheckMustCoverAllRules() {
         assertThat(AUTO_CONFIGURATION.matcher("@AutoConfiguration").find()).isTrue();
         // 边界：只有出现在「有效代码」里的注解才算，注释/Javadoc/字符串里的提及不算
@@ -376,6 +427,18 @@ class SourceConventionTest {
         assertThat(isInboundTokenGuardSource(stripCommentsAndLiterals(
                 "class Y implements RequestInterceptor {\n"
                 + "  void apply() { template.header(TOKEN_HEADER, token); }\n}"))).isFalse();
+        // SRC-07 自检：语义识别 + 两个方向（实现标 @Component 必须被抓；不标则放行）
+        String componentPortImpl = stripCommentsAndLiterals(
+                "@Component\nclass L implements TenantLinkManager { }\n");
+        assertThat(implementsReplaceablePort(componentPortImpl)).isTrue();
+        assertThat(isScannedComponent(componentPortImpl)).isTrue();
+        String beanPortImpl = stripCommentsAndLiterals(
+                "class L implements TenantLinkManager { }\n");
+        assertThat(implementsReplaceablePort(beanPortImpl)).isTrue();
+        assertThat(isScannedComponent(beanPortImpl)).isFalse();
+        // Javadoc 里提到「不得标 @Component」不算违规（剥离注释后不可见）
+        assertThat(isScannedComponent(stripCommentsAndLiterals(
+                "/** 不得标 @Component；由 @ConditionalOnMissingBean 装配 */\nclass L {}\n"))).isFalse();
         assertThat(BEAN_ANNOTATION.matcher("    @Bean").matches()).isTrue();
         assertThat(CONDITIONAL_ON_MISSING_BEAN).isNotBlank();
         assertThat(REPO_ROOT.resolve(MODULE_PREFIX + "common")).isDirectory();

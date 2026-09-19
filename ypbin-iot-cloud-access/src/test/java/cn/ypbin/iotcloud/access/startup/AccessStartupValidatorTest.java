@@ -79,8 +79,21 @@ class AccessStartupValidatorTest {
             TimeUnit.MILLISECONDS, true);
 
         assertThat(validator(properties, defaultOptions()).errors()).isEmpty();
-        assertThat(validator(properties, overridden).errors()).singleElement().asString()
-            .contains("31000ms");
+        // 覆盖后有两处会同时报：续约周期不够长 + 重领间隔小于最坏耗时（都是同一根因，一次列全）
+        assertThat(validator(properties, overridden).errors())
+            .anySatisfy(issue -> assertThat(issue).contains("connect 1000ms + read 30000ms = 31000ms"))
+            .anySatisfy(issue -> assertThat(issue).contains("acquire-interval-ms"));
+    }
+
+    @Test
+    @DisplayName("重领间隔小于一次调用最坏耗时 → 报错（否则握手 acquire 飞行期间就被抢跑重领）")
+    void shouldRejectAcquireIntervalSmallerThanWorstCase() {
+        AccessProperties properties = configured();
+        properties.setAcquireIntervalMs(3_000L);
+
+        assertThat(validator(properties, defaultOptions()).errors()).singleElement().asString()
+            .contains("acquire-interval-ms")
+            .contains("4000ms");
     }
 
     @Test

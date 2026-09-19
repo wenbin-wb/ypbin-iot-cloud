@@ -223,7 +223,8 @@ public class AccessLeaseManager {
                 + "（node=" + LogSanitizer.sanitize(properties.getNodeId()) + "）", ex);
         }
         if (resp == null || resp.getCode() != GlobalErrorCode.SUCCESS.getCode()) {
-            throw new IllegalStateException("access 启动失败：注册节点未成功（node=" + properties.getNodeId()
+            throw new IllegalStateException("access 启动失败：注册节点未成功（node="
+                + LogSanitizer.sanitize(properties.getNodeId())
                 + ", code=" + (resp == null ? "null" : resp.getCode())
                 + ", message=" + (resp == null ? "" : resp.getMessage()) + "）");
         }
@@ -242,7 +243,8 @@ public class AccessLeaseManager {
                 + "（node=" + LogSanitizer.sanitize(properties.getNodeId()) + "）", ex);
         }
         if (resp == null || resp.getCode() != GlobalErrorCode.SUCCESS.getCode() || resp.getData() == null) {
-            throw new IllegalStateException("access 启动失败：领取租约未成功（node=" + properties.getNodeId()
+            throw new IllegalStateException("access 启动失败：领取租约未成功（node="
+                + LogSanitizer.sanitize(properties.getNodeId())
                 + ", code=" + (resp == null ? "null" : resp.getCode()) + "）");
         }
         applyAcquireResponse(resp.getData());
