@@ -26,6 +26,7 @@ import cn.ypbin.iotcloud.api.lease.TenantEpochBatchResp;
 import cn.ypbin.iotcloud.api.lease.TenantEpochItem;
 import cn.ypbin.starter.core.exception.BusinessException;
 import cn.ypbin.starter.core.exception.GlobalErrorCode;
+import cn.ypbin.starter.core.util.LogSanitizer;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -94,7 +95,8 @@ public class LeaseService {
      */
     public void register(String accessNode, Integer maxTenants) {
         store.registerNode(accessNode, maxTenants);
-        log.info("access 节点注册：node={} maxTenants={}", accessNode,
+        // 用户可控值一律经 LogSanitizer 再入日志：换行/控制字符可伪造日志行（CodeQL java/log-injection）
+        log.info("access 节点注册：node={} maxTenants={}", LogSanitizer.sanitize(accessNode),
             maxTenants == null ? "不限（单节点全量）" : maxTenants);
     }
 
@@ -126,7 +128,8 @@ public class LeaseService {
         LocalDateTime now = LocalDateTime.now();
         if (!store.isRegistered(accessNode)) {
             throw new BusinessException(GlobalErrorCode.BUSINESS_ERROR,
-                "节点未注册，请先调用 /internal/lease/register：node=" + accessNode);
+                "节点未注册，请先调用 /internal/lease/register：node="
+                    + LogSanitizer.sanitize(accessNode));
         }
         int capacity = store.capacityOf(accessNode);
         List<LeaseAssignment> result = new ArrayList<>();
@@ -155,7 +158,8 @@ public class LeaseService {
         LeaseAcquireResp resp = new LeaseAcquireResp();
         resp.setAccessNode(accessNode);
         resp.setAssignments(result.stream().map(LeaseAssignment::toDto).toList());
-        log.info("租户领取完成：node={} capacity={} 本次归属={}", accessNode, capacity, result.size());
+        log.info("租户领取完成：node={} capacity={} 本次归属={}", LogSanitizer.sanitize(accessNode),
+            capacity, result.size());
         return resp;
     }
 
@@ -186,7 +190,8 @@ public class LeaseService {
         if (!store.isRegistered(accessNode)) {
             resp.setNodeFenced(true);
             resp.setRevokedTenantIds(leases.stream().map(LeaseRenewItem::getTenantId).toList());
-            log.warn("续约的节点未注册，已整体 fencing：node={} 涉及租户数={}", accessNode, leases.size());
+            log.warn("续约的节点未注册，已整体 fencing：node={} 涉及租户数={}",
+                LogSanitizer.sanitize(accessNode), leases.size());
             return resp;
         }
         List<LeaseRenewAck> acks = new ArrayList<>();
@@ -203,7 +208,8 @@ public class LeaseService {
         }
         resp.setRenewedLeases(acks);
         resp.setRevokedTenantIds(revoked);
-        log.debug("续约完成：node={} 续约={} 撤销={}", accessNode, acks.size(), revoked.size());
+        log.debug("续约完成：node={} 续约={} 撤销={}", LogSanitizer.sanitize(accessNode), acks.size(),
+            revoked.size());
         return resp;
     }
 
@@ -236,10 +242,12 @@ public class LeaseService {
                 store.save(held.get().asReleased());
                 released++;
             } else {
-                log.warn("忽略了不属于该节点的释放请求：node={} tenantId={}", accessNode, tenantId);
+                log.warn("忽略了不属于该节点的释放请求：node={} tenantId={}",
+                    LogSanitizer.sanitize(accessNode), LogSanitizer.sanitize(tenantId));
             }
         }
-        log.info("租约释放完成：node={} 请求={} 实际释放={}", accessNode, tenantIds.size(), released);
+        log.info("租约释放完成：node={} 请求={} 实际释放={}", LogSanitizer.sanitize(accessNode),
+            tenantIds.size(), released);
     }
 
     /**
@@ -302,7 +310,8 @@ public class LeaseService {
                 store.save(pending);
                 marked.add(pending.toDto());
                 log.warn("租约已过期，租户置为待接管：tenantId={} 原节点={} 到期时间={}",
-                    assignment.tenantId(), assignment.accessNode(), assignment.leaseExpireAt());
+                    LogSanitizer.sanitize(assignment.tenantId()),
+                    LogSanitizer.sanitize(assignment.accessNode()), assignment.leaseExpireAt());
             }
         }
         return marked;
@@ -322,7 +331,8 @@ public class LeaseService {
         LeaseAssignment taken = assignment.withLease(accessNode, now.plus(properties.getTtl()), epoch);
         store.save(taken);
         log.warn("租户接管：tenantId={} 原节点={} 新节点={} 新 epoch={}",
-            assignment.tenantId(), assignment.accessNode(), accessNode, epoch);
+            LogSanitizer.sanitize(assignment.tenantId()), LogSanitizer.sanitize(assignment.accessNode()),
+            LogSanitizer.sanitize(accessNode), epoch);
         return taken;
     }
 
@@ -331,7 +341,8 @@ public class LeaseService {
         LeaseAssignment assignment = new LeaseAssignment(tenantId, accessNode, now.plus(properties.getTtl()),
             store.currentEpoch(tenantId), LeaseState.ACTIVE);
         store.save(assignment);
-        log.info("租户首次分配：tenantId={} node={} epoch={}", tenantId, accessNode, assignment.epoch());
+        log.info("租户首次分配：tenantId={} node={} epoch={}", LogSanitizer.sanitize(tenantId),
+            LogSanitizer.sanitize(accessNode), assignment.epoch());
         return assignment;
     }
 
