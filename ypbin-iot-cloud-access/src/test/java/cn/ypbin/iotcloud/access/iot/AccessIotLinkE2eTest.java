@@ -27,6 +27,7 @@ import java.net.Socket;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -106,6 +107,22 @@ class AccessIotLinkE2eTest {
     void iotStarterOnClasspathShouldReplaceLinkManager() {
         assertThat(linkManager).isInstanceOf(IotTenantLinkManager.class);
         assertThat(dataSink).isInstanceOf(LoggingDataSink.class);
+    }
+
+    /** 收尾：关掉模拟设备与它接受过的连接（静态资源不关会跨用例泄漏端口与线程）。 */
+    @AfterAll
+    static void shutdownDeviceServer() throws IOException {
+        for (Socket socket : ACCEPTED) {
+            try {
+                socket.close();
+            } catch (IOException ignored) {
+                // 已关闭/已断开：收尾阶段无需处理
+            }
+        }
+        ACCEPTED.clear();
+        if (!DEVICE_SERVER.isClosed()) {
+            DEVICE_SERVER.close();
+        }
     }
 
     @Test
