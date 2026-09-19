@@ -53,6 +53,15 @@ public class LeaseProperties {
     private long scanIntervalMs = 15_000L;
 
     /**
+     * access 的<b>预期续约周期</b>（默认 10s，与契约一致）。
+     *
+     * <p>它不参与运行期判定，只用于<b>启动期自检</b>：{@link #ttl} 必须明显大于它，
+     * 否则一次网络抖动就会让续约跨过到期时间、把还活着的节点判成失效
+     * （契约 §6「超时与续约周期的关系」要求把这条提醒变成可执行约束）。</p>
+     */
+    private Duration expectedRenewInterval = Duration.ofSeconds(10);
+
+    /**
      * M0a 的可分配租户清单。
      *
      * <p>M0a 还没有台账表（迁移在 M0b 定稿，§12.2），所以「有哪些租户可以被分配给 access 节点」

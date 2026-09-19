@@ -26,6 +26,11 @@
             <groupId>cn.ypbin</groupId>
             <artifactId>ypbin-starter-cloud-gateway</artifactId>
         </dependency>
+        <!-- 统一信封（R / GlobalErrorCode）与日志脱敏（LogSanitizer）：内部端点封堵要用 -->
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-starter-core</artifactId>
+        </dependency>
         <!-- 健康检查端点：M0a 的「能起」按 P5 用 curl /actuator/health 验收 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

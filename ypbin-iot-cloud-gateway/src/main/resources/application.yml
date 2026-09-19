@@ -44,6 +44,8 @@ ypbin:
         - X-Dept-Id
         - X-Roles
         - X-Gateway-Signed
+        # 内部凭证同样必须剥掉：不剥则客户端可自带它穿透下游的入站校验（§4.4-2）
+        - X-Internal-Token
     auth:
       enabled: true
       # ⚠️ 显式写 exclude-paths 会**整体替换** starter 的默认放行列表
@@ -63,8 +65,11 @@ ypbin:
       trusted-source-token: ${GATEWAY_SIGN_TOKEN:}
       trusted-source-header: X-Gateway-Signed
   internal:
-    # 内部端点凭证（P3 起 business 的 /internal/** 守卫使用）；属密钥，只经环境变量注入
-    token: ${INTERNAL_TOKEN:}
+    # 内部端点凭证（business 的 /internal/** 守卫使用）；属密钥，只经环境变量注入。
+    # ⚠️ 环境变量名与 business 侧保持一致（都读 YPBIN_INTERNAL_TOKEN）：同一个逻辑密钥用两个名字
+    # 只会在部署时静默分叉（守卫 fail-closed 会暴露，但排查成本高）。
+    # 注：M0a 网关自身不调用内部端点；这里保留是因为网关的 in-process 组件将来可能用到它。
+    token: ${YPBIN_INTERNAL_TOKEN:}
 
 management:
   endpoints:

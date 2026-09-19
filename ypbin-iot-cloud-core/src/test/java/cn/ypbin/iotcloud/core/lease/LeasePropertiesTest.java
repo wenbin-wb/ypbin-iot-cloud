@@ -42,6 +42,7 @@ class LeasePropertiesTest {
         assertThat(properties.isEnabled()).isTrue();
         assertThat(properties.getTtl()).isEqualTo(Duration.ofSeconds(30));
         assertThat(properties.getScanIntervalMs()).isEqualTo(15_000L);
+        assertThat(properties.getExpectedRenewInterval()).isEqualTo(Duration.ofSeconds(10));
         assertThat(properties.getAssignableTenantIds()).isEmpty();
     }
 
@@ -53,11 +54,13 @@ class LeasePropertiesTest {
         properties.setEnabled(false);
         properties.setTtl(Duration.ofSeconds(5));
         properties.setScanIntervalMs(1_000L);
+        properties.setExpectedRenewInterval(Duration.ofSeconds(3));
         properties.setAssignableTenantIds(List.of(7L, 9L));
 
         assertThat(properties.isEnabled()).isFalse();
         assertThat(properties.getTtl()).isEqualTo(Duration.ofSeconds(5));
         assertThat(properties.getScanIntervalMs()).isEqualTo(1_000L);
+        assertThat(properties.getExpectedRenewInterval()).isEqualTo(Duration.ofSeconds(3));
         assertThat(properties.getAssignableTenantIds()).containsExactly(7L, 9L);
     }
 }

@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.locks.ReentrantLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -62,6 +63,19 @@ public class LeaseService {
     private final LeaseProperties properties;
 
     /**
+     * 进程内互斥锁。
+     *
+     * <p>⚠️ <b>单副本也必须加它</b>（独立复核实测：60 轮并发领取复现 12 次双主）。本类的
+     * {@code acquire}/{@code renew}/{@code release}/{@code markExpired} 都是「读快照 → 判定 → 写」的
+     * 复合操作，两个并发的 HTTP 请求就能让<strong>同一租户同时被分给两个节点、且双方 epoch 相同</strong>——
+     * 后果是两个节点同时轮询同一台设备（正是 self-fencing 要消灭的形态），且靠 epoch 分辨不出旧主。
+     * 这<strong>不需要多副本</strong>就能触发。</p>
+     *
+     * <p>锁只保护<b>本进程</b>；M0b 换成共享表后，跨副本的互斥必须由数据库事务/行锁保证（ADR-0001）。</p>
+     */
+    private final ReentrantLock mutationLock = new ReentrantLock(true);
+
+    /**
      * 构造租约维护服务。
      *
      * @param store      归属存储（M0a 内存实现）
@@ -76,11 +90,12 @@ public class LeaseService {
      * 注册节点（幂等）。
      *
      * @param accessNode 节点标识
-     * @param maxTenants 该节点最多能带多少租户（决定它能领取多少）
+     * @param maxTenants 该节点最多能带多少租户；<b>为空表示不限</b>（自用单节点全量模式，spec §3.1①）
      */
-    public void register(String accessNode, int maxTenants) {
+    public void register(String accessNode, Integer maxTenants) {
         store.registerNode(accessNode, maxTenants);
-        log.info("access 节点注册：node={} maxTenants={}", accessNode, maxTenants);
+        log.info("access 节点注册：node={} maxTenants={}", accessNode,
+            maxTenants == null ? "不限（单节点全量）" : maxTenants);
     }
 
     /**
@@ -98,6 +113,16 @@ public class LeaseService {
      * @throws BusinessException 节点未注册（启动次序错了：必须先 register，§3.1⑥）
      */
     public LeaseAcquireResp acquire(String accessNode) {
+        mutationLock.lock();
+        try {
+            return doAcquire(accessNode);
+        } finally {
+            mutationLock.unlock();
+        }
+    }
+
+    /** {@link #acquire(String)} 的加锁实现（判定与写入必须整体互斥）。 */
+    private LeaseAcquireResp doAcquire(String accessNode) {
         LocalDateTime now = LocalDateTime.now();
         if (!store.isRegistered(accessNode)) {
             throw new BusinessException(GlobalErrorCode.BUSINESS_ERROR,
@@ -146,6 +171,16 @@ public class LeaseService {
      * @return 逐租户回执 + 被撤销租户 + 节点级 fencing 信号
      */
     public LeaseRenewResp renew(String accessNode, List<LeaseRenewItem> leases) {
+        mutationLock.lock();
+        try {
+            return doRenew(accessNode, leases);
+        } finally {
+            mutationLock.unlock();
+        }
+    }
+
+    /** {@link #renew(String, List)} 的加锁实现。 */
+    private LeaseRenewResp doRenew(String accessNode, List<LeaseRenewItem> leases) {
         LocalDateTime now = LocalDateTime.now();
         LeaseRenewResp resp = new LeaseRenewResp();
         if (!store.isRegistered(accessNode)) {
@@ -182,6 +217,16 @@ public class LeaseService {
      * @param tenantIds  要释放的租户
      */
     public void release(String accessNode, List<Long> tenantIds) {
+        mutationLock.lock();
+        try {
+            doRelease(accessNode, tenantIds);
+        } finally {
+            mutationLock.unlock();
+        }
+    }
+
+    /** {@link #release(String, List)} 的加锁实现。 */
+    private void doRelease(String accessNode, List<Long> tenantIds) {
         LocalDateTime now = LocalDateTime.now();
         int released = 0;
         for (Long tenantId : tenantIds) {
@@ -240,6 +285,16 @@ public class LeaseService {
      * @return 本次被置为待接管的租户（它们的原持有节点）
      */
     public List<LeaseAssignmentDto> markExpired(LocalDateTime now) {
+        mutationLock.lock();
+        try {
+            return doMarkExpired(now);
+        } finally {
+            mutationLock.unlock();
+        }
+    }
+
+    /** {@link #markExpired(LocalDateTime)} 的加锁实现。 */
+    private List<LeaseAssignmentDto> doMarkExpired(LocalDateTime now) {
         List<LeaseAssignmentDto> marked = new ArrayList<>();
         for (LeaseAssignment assignment : store.findAll()) {
             if (assignment.state() == LeaseState.ACTIVE && LeaseEpochRules.isLeaseExpired(assignment.leaseExpireAt(), now)) {

@@ -1,0 +1,110 @@
+/*
+ * Copyright (c) 2024-present ypbin-iot-cloud authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package cn.ypbin.iotcloud.business.startup;
+
+import cn.ypbin.iotcloud.common.config.InternalProperties;
+import cn.ypbin.iotcloud.common.constant.InternalTokenConstants;
+import cn.ypbin.iotcloud.core.lease.LeaseProperties;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.InitializingBean;
+import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
+
+/**
+ * business 的启动期自检（把「运维提醒」变成可执行约束）。
+ *
+ * <p>背景：有两类配置错误<b>不会让服务起不来</b>，只会在运行期以很难排查的方式发作，
+ * 所以必须在这里大声说出来：</p>
+ * <ol>
+ *   <li><b>租约有效期 ≤ 续约周期</b>：一次网络抖动就会让续约跨过到期时间，把还活着的节点判成失效、
+ *       触发无谓接管（契约 §6「超时与续约周期的关系」明确要求 P3/P4 加启动期校验）；</li>
+ *   <li><b>没配内部凭证 / 没配可分配租户</b>：前者让守卫 fail-closed 拒绝一切
+ *       {@code /internal/**} 请求（安全上正确，但本地联调常忘）；后者让整条租约链路空跑
+ *       （{@code acquire} 永远返回空、release 全部被忽略）——独立复核就把这一条列为「差点被假绿骗过」。</li>
+ * </ol>
+ *
+ * <p>校验逻辑与日志分离成 {@link #errors()} / {@link #warnings()} 两个纯方法，便于直接断言。</p>
+ *
+ * @author wenbin
+ * @since 2026-09-19
+ */
+@Component
+public class BusinessStartupChecker implements InitializingBean {
+
+    private static final Logger log = LoggerFactory.getLogger(BusinessStartupChecker.class);
+
+    private final InternalProperties internalProperties;
+    private final LeaseProperties leaseProperties;
+
+    /**
+     * 构造启动自检。
+     *
+     * @param internalProperties 内部调用配置（守卫用）
+     * @param leaseProperties    租约参数
+     */
+    public BusinessStartupChecker(InternalProperties internalProperties, LeaseProperties leaseProperties) {
+        this.internalProperties = internalProperties;
+        this.leaseProperties = leaseProperties;
+    }
+
+    @Override
+    public void afterPropertiesSet() {
+        for (String warning : warnings()) {
+            log.warn("业务服务启动自检：{}", warning);
+        }
+        for (String error : errors()) {
+            log.error("业务服务启动自检：{}", error);
+        }
+    }
+
+    /**
+     * 启动期<b>错误</b>：不阻断启动（M0a 允许先起来看日志），但线上必然出问题。
+     *
+     * @return 问题描述列表
+     */
+    List<String> errors() {
+        List<String> issues = new ArrayList<>();
+        Duration ttl = leaseProperties.getTtl();
+        Duration renewInterval = leaseProperties.getExpectedRenewInterval();
+        if (ttl.compareTo(renewInterval) <= 0) {
+            issues.add("租约有效期(" + ttl + ")不大于预期续约周期(" + renewInterval
+                + ")：一次抖动就会让续约跨过到期时间、把活着的节点判成失效并触发接管；请把 ypbin.lease.ttl 调到明显更大");
+        }
+        return issues;
+    }
+
+    /**
+     * 启动期<b>警告</b>：多半是配置漏了，不一定是错误。
+     *
+     * @return 提醒列表
+     */
+    List<String> warnings() {
+        List<String> issues = new ArrayList<>();
+        if (!StringUtils.hasText(internalProperties.getToken())) {
+            issues.add("未配置 " + InternalTokenConstants.TOKEN_PROPERTY
+                + "：入站守卫会 fail-closed 拒绝全部 /internal/** 请求（安全上正确，但本地联调常忘）");
+        }
+        if (leaseProperties.getAssignableTenantIds().isEmpty()) {
+            issues.add("ypbin.lease.assignable-tenant-ids 为空：不会有任何租户被分配，租约链路会空跑"
+                + "（M0a 这是默认值；跑验收时请显式传入租户）");
+        }
+        return issues;
+    }
+}

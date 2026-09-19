@@ -54,11 +54,13 @@ class LeaseAutoConfigurationTest {
     }
 
     @Test
-    @DisplayName("ypbin.lease.enabled=false 时整体不装配（本地只想跑业务接口的场景）")
+    @DisplayName("ypbin.lease.enabled=false 时四件套整体不装配（本地只想跑业务接口的场景）")
     void shouldNotRegisterWhenDisabled() {
         runner.withPropertyValues("ypbin.lease.enabled=false").run(context -> {
+            assertThat(context).doesNotHaveBean(InMemoryLeaseStore.class);
             assertThat(context).doesNotHaveBean(LeaseService.class);
             assertThat(context).doesNotHaveBean(LeaseExpiryScanner.class);
+            assertThat(context).doesNotHaveBean(LeaseProperties.class);
         });
     }
 

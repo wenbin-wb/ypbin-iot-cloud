@@ -29,6 +29,12 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -51,6 +57,7 @@ class LeaseServiceTest {
     private static final long TENANT_B = 22L;
     private static final String NODE_1 = "access-1";
     private static final String NODE_2 = "access-2";
+    private static final String NODE_3 = "access-3";
 
     private InMemoryLeaseStore store;
     private LeaseService service;
@@ -287,6 +294,89 @@ class LeaseServiceTest {
         assertThat(released.takeoverable(now)).isFalse();
         assertThat(active.withLease(NODE_2, now.plusSeconds(60), 9L))
             .isEqualTo(new LeaseAssignment(TENANT_A, NODE_2, now.plusSeconds(60), 9L, LeaseState.ACTIVE));
+    }
+
+    @Test
+    @DisplayName("容量不限（maxTenants 为空）：单节点全量模式可领取全部可分配租户")
+    void unlimitedCapacityShouldAssignAllTenants() {
+        service.register(NODE_1, null);
+
+        LeaseAcquireResp resp = service.acquire(NODE_1);
+
+        assertThat(tenantIdsOf(resp)).containsExactly(TENANT_A, TENANT_B);
+    }
+
+    @Test
+    @DisplayName("并发领取：同一租户不会被同时分给两个节点（单副本也必须进程内互斥）")
+    void concurrentAcquireMustNotDoubleAssign() throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            for (int round = 0; round < 200; round++) {
+                // 每轮把租户重置为「已释放」（可被重新分配），只观察并发领取本身
+                store.save(new LeaseAssignment(TENANT_A, NODE_1, LocalDateTime.now().plusSeconds(30),
+                    store.currentEpoch(TENANT_A), LeaseState.RELEASED));
+                service.register(NODE_2, 1);
+                service.register(NODE_3, 1);
+                CyclicBarrier barrier = new CyclicBarrier(2);
+                Future<Boolean> second = pool.submit(acquiredBy(NODE_2, barrier));
+                Future<Boolean> third = pool.submit(acquiredBy(NODE_3, barrier));
+                long owners = (second.get() ? 1 : 0) + (third.get() ? 1 : 0);
+                assertThat(owners).as("第 %s 轮：同一租户只允许一个节点持有（双主=两台设备同时轮询）", round)
+                    .isEqualTo(1);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("续约：租户已被正常释放 → 进撤销列表（节点必须停采）")
+    void renewShouldRevokeReleasedTenant() {
+        service.register(NODE_1, 1);
+        service.acquire(NODE_1);
+        long epoch = store.currentEpoch(TENANT_A);
+        service.release(NODE_1, List.of(TENANT_A));
+
+        LeaseRenewResp resp = service.renew(NODE_1, List.of(renewItem(TENANT_A, epoch)));
+
+        assertThat(resp.getRevokedTenantIds()).containsExactly(TENANT_A);
+        assertThat(resp.getRenewedLeases()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("续约：租户从未分配过 → 进撤销列表（节点自认为持有但系统里没有）")
+    void renewShouldRevokeUnknownTenant() {
+        service.register(NODE_1, 1);
+
+        LeaseRenewResp resp = service.renew(NODE_1, List.of(renewItem(999L, 1L)));
+
+        assertThat(resp.getRevokedTenantIds()).containsExactly(999L);
+        assertThat(resp.isNodeFenced()).isFalse();
+    }
+
+    @Test
+    @DisplayName("续约：节点自己漏续约导致租约过期（进程可能还活着）→ 进撤销列表，要求 self-fencing")
+    void renewShouldRevokeTenantWhoseLeaseExpired() {
+        service.register(NODE_1, 1);
+        service.acquire(NODE_1);
+        LeaseAssignment held = store.find(TENANT_A).orElseThrow();
+        // 模拟「节点漏了一轮续约」：状态仍是 ACTIVE，但本地已过期
+        store.save(new LeaseAssignment(TENANT_A, held.accessNode(), LocalDateTime.now().minusSeconds(1),
+            held.epoch(), LeaseState.ACTIVE));
+
+        LeaseRenewResp resp = service.renew(NODE_1, List.of(renewItem(TENANT_A, held.epoch())));
+
+        assertThat(resp.getRevokedTenantIds()).containsExactly(TENANT_A);
+        assertThat(resp.isNodeFenced()).isFalse();
+    }
+
+    private Callable<Boolean> acquiredBy(String accessNode, CyclicBarrier barrier) {
+        return () -> {
+            barrier.await(5, TimeUnit.SECONDS);
+            return service.acquire(accessNode).getAssignments().stream()
+                .anyMatch(assignment -> assignment.getTenantId().equals(TENANT_A)
+                    && assignment.getState() == LeaseState.ACTIVE);
+        };
     }
 
     private List<Long> tenantIdsOf(LeaseAcquireResp resp) {

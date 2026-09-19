@@ -38,7 +38,9 @@ import org.springframework.web.bind.annotation.RestController;
  * 租约维护的内部端点（IOT-CLOUD-SPEC.md §3.1①⑦ 的 access↔business 契约）。
  *
  * <p>路径与 {@code ILeaseClient} 的 Feign 声明<b>逐字对应</b>（{@code /internal/lease}），
- * 改这里必须同步改契约接口，否则两侧会在运行时 404——契约一致性用例会拦。</p>
+ * 改这里必须同步改契约接口，否则两侧会在运行时 404。这条约束由
+ * {@code ypbin-iot-cloud-architecture-tests} 的 {@code LeaseContractConsistencyTest}
+ * 用反射逐端点比对来强制（含「至少扫到 6 个端点」的自检，防止空跑）。</p>
  *
  * <p>三个刻意的取舍：</p>
  * <ol>

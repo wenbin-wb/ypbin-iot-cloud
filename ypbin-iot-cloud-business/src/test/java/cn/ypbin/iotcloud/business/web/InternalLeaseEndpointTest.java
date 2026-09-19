@@ -43,6 +43,10 @@ import org.springframework.test.web.servlet.MockMvc;
  *
  * <p>扫描周期在测试里调到 1 小时：否则 15s 的定时扫描会在用例中途把租约置为待接管，造成偶发红。</p>
  *
+ * <p><b>用例隔离</b>：本类共用一个 Spring 上下文，因而也共用同一份内存归属存储——
+ * 涉及「领取结果」的用例必须用<b>自己的节点名与自己的租户</b>，否则会随执行顺序变化。
+ * 需要干净租户集合的场景请另开一个带独立属性的测试类（见 {@code InternalLeaseUnlimitedCapacityTest}）。</p>
+ *
  * @author wenbin
  * @since 2026-09-19
  */
@@ -92,7 +96,9 @@ class InternalLeaseEndpointTest {
             .andExpect(jsonPath("$.code").value(200))
             .andExpect(jsonPath("$.data.accessNode").value("access-1"))
             .andExpect(jsonPath("$.data.assignments.length()").value(2))
-            .andExpect(jsonPath("$.data.assignments[0].state").value("ACTIVE"));
+            .andExpect(jsonPath("$.data.assignments[0].state").value("ACTIVE"))
+            // 首次分配的 epoch = 1（台账版本号初值）
+            .andExpect(jsonPath("$.data.assignments[0].epoch").value(1));
 
         mockMvc.perform(post(InternalLeaseController.BASE_PATH + "/renew")
                 .header(InternalTokenConstants.TOKEN_HEADER, TOKEN)
@@ -118,7 +124,9 @@ class InternalLeaseEndpointTest {
                 .content("{\"accessNode\":\"access-2\"}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.assignments[0].tenantId").value(11))
-            .andExpect(jsonPath("$.data.assignments[0].accessNode").value("access-2"));
+            .andExpect(jsonPath("$.data.assignments[0].accessNode").value("access-2"))
+            // 正常释放后的再分配**不递增** epoch（台账没变；与「接管必递增」相对）
+            .andExpect(jsonPath("$.data.assignments[0].epoch").value(1));
     }
 
     @Test
@@ -153,7 +161,9 @@ class InternalLeaseEndpointTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"tenantId\":999}"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.code").value(200));
+            .andExpect(jsonPath("$.code").value(200))
+            // 关键断言：**不返回归属对象**（此前只断言 code，变异证明它根本不咬人）
+            .andExpect(jsonPath("$.data").doesNotExist());
     }
 
     @Test
@@ -162,7 +172,8 @@ class InternalLeaseEndpointTest {
         mockMvc.perform(post(InternalLeaseController.BASE_PATH + "/register")
                 .header(InternalTokenConstants.TOKEN_HEADER, TOKEN)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"accessNode\":\"access-1\",\"maxTenants\":0}"))
+                // 用独立节点名：本类的内存存储跨用例共享，不能把 access-1 的容量改成 0 影响其它用例
+                .content("{\"accessNode\":\"access-invalid\",\"maxTenants\":0}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.code").value(400));
     }

@@ -24,6 +24,7 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.scheduling.annotation.Scheduled;
 
 /**
  * 租约失效扫描器测试。
@@ -65,6 +66,16 @@ class LeaseExpiryScannerTest {
         scanner.scan();
 
         assertThat(store.find(TENANT).orElseThrow().state()).isEqualTo(LeaseState.PENDING_TAKEOVER);
+    }
+
+    @Test
+    @DisplayName("扫描周期的两处默认值必须一致：注解里的字面量 vs 属性默认值（防静默漂移）")
+    void scheduledDefaultMustMatchPropertyDefault() throws Exception {
+        Scheduled scheduled = LeaseExpiryScanner.class.getMethod("scan").getAnnotation(Scheduled.class);
+
+        assertThat(scheduled).isNotNull();
+        assertThat(scheduled.fixedDelayString())
+            .isEqualTo("${ypbin.lease.scan-interval-ms:" + new LeaseProperties().getScanIntervalMs() + "}");
     }
 
     @Test

@@ -43,6 +43,5 @@ public class LeaseRenewReq {
      * 但为 {@code null} 时不合法。</p>
      */
     @NotNull(message = "续约条目列表不能为 null（可以是空集合）")
-    @Valid
-    private List<LeaseRenewItem> leases;
+    private List<@Valid LeaseRenewItem> leases;
 }

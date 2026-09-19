@@ -18,6 +18,7 @@ package cn.ypbin.iotcloud.gateway.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import cn.ypbin.iotcloud.gateway.GatewayApplication;
+import cn.ypbin.iotcloud.gateway.internal.InternalPathBlockFilter;
 import cn.ypbin.starter.gateway.autoconfigure.GatewayAuthMissingProviderAutoConfiguration;
 import cn.ypbin.starter.gateway.autoconfigure.GatewayAutoConfiguration;
 import cn.ypbin.starter.gateway.filter.GatewayAuthGlobalFilter;
@@ -87,5 +88,16 @@ class GatewayAuthProviderPresenceTest {
             assertThat(context).doesNotHaveBean(PlatformGatewayAuthProvider.class);
             assertThat(context).doesNotHaveBean(GatewayAuthGlobalFilter.class);
         });
+    }
+
+    @Test
+    @DisplayName("真实扫描根下：内部端点封堵过滤器必须存在（缺了它 /business/internal/** 会穿到下游）")
+    void internalPathBlockFilterMustBeVisibleFromApplicationScanRoot() {
+        new ReactiveWebApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(GatewayAutoConfiguration.class))
+            .withUserConfiguration(GatewayApplication.class)
+            .run(context -> assertThat(context)
+                .as("内部端点封堵是网关侧的硬要求：路由会 StripPrefix 后把它改写成下游的 /internal/**")
+                .hasSingleBean(InternalPathBlockFilter.class));
     }
 }
