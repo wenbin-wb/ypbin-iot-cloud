@@ -30,10 +30,51 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
-        <!-- 健康检查端点（P5 用 curl /actuator/health 验收） -->
+        <!-- 健康检查端点（P5 用 curl /actuator/health 验收）+ Micrometer 指标（P4 退出条件：续约/失效可观测） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- 租约契约（ILeaseClient 的 Feign 声明、DTO、超时与 NEVER_RETRY、出站内部令牌拦截器） -->
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-iot-cloud-api</artifactId>
+        </dependency>
+        <!-- InternalProperties：出站内部令牌的值来源（与入站守卫同一份配置） -->
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-iot-cloud-common</artifactId>
+        </dependency>
+        <!-- R / GlobalErrorCode / LogSanitizer：统一信封判定与日志脱敏 -->
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-starter-core</artifactId>
+        </dependency>
+        <!--
+          必需，不是可选项：**Feign 响应里就有 R 信封**（含 LocalDateTime 的 timestamp）。
+          starter 的 Jackson 定制（时间格式、Long→String 等）在 **starter-json**，本模块是经
+          starter-web 把它带进来的（复核实测：同时移除 starter-web 与 starter-json 才会出现
+          `feign.codec.DecodeException: Cannot deserialize LocalDateTime from "2026-09-19 10:37:27"`，
+          注册握手直接失败）。所以这里引 starter-web 是「顺带拿到 json 定制 + 统一信封」。
+        -->
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-starter-web</artifactId>
+        </dependency>
+        <!--
+          M0a 关 Nacos（spec §4.5），Feign 走 Spring Cloud 的 simple 发现：
+          服务实例地址在 yml 的 spring.cloud.discovery.client.simple.instances 下配。
+        -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-loadbalancer</artifactId>
+        </dependency>
+        <!-- lombok 在各模块都是 optional（不传递），用到就要显式声明 -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
         </dependency>
     </dependencies>
 

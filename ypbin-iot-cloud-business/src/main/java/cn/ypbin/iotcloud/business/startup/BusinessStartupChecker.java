@@ -15,6 +15,7 @@
  */
 package cn.ypbin.iotcloud.business.startup;
 
+import cn.ypbin.iotcloud.api.lease.config.LeaseFeignConfiguration;
 import cn.ypbin.iotcloud.common.config.InternalProperties;
 import cn.ypbin.iotcloud.common.constant.InternalTokenConstants;
 import cn.ypbin.iotcloud.core.lease.LeaseProperties;
@@ -33,8 +34,11 @@ import org.springframework.util.StringUtils;
  * <p>背景：有两类配置错误<b>不会让服务起不来</b>，只会在运行期以很难排查的方式发作，
  * 所以必须在这里大声说出来：</p>
  * <ol>
- *   <li><b>租约有效期 ≤ 续约周期</b>：一次网络抖动就会让续约跨过到期时间，把还活着的节点判成失效、
- *       触发无谓接管（契约 §6「超时与续约周期的关系」明确要求 P3/P4 加启动期校验）；</li>
+ *   <li><b>租约有效期不够长</b>：一次网络抖动就会让续约跨过到期时间，把还活着的节点判成失效、
+ *       触发无谓接管（契约 §6「超时与续约周期的关系」明确要求 P3/P4 加启动期校验）。
+ *       判据是 {@code ttl > 预期续约周期 + 一次续约最坏耗时}——只看「ttl &gt; 周期」会漏掉
+ *       「周期够长、但一次续约本身就能耗掉大半个周期」的配置（复核 D6 实测：{@code ttl=11s}
+ *       能过旧判据，而客户端最坏周期是 10s + connect 1s + read 3s = 14s）；</li>
  *   <li><b>没配内部凭证 / 没配可分配租户</b>：前者让守卫 fail-closed 拒绝一切
  *       {@code /internal/**} 请求（安全上正确，但本地联调常忘）；后者让整条租约链路空跑
  *       （{@code acquire} 永远返回空、release 全部被忽略）——独立复核就把这一条列为「差点被假绿骗过」。</li>
@@ -109,11 +113,25 @@ public class BusinessStartupChecker implements InitializingBean {
         if (!ttlValid) {
             issues.add("ypbin.lease.ttl 必须为正数（当前 " + ttl + "）");
         }
-        if (intervalValid && ttlValid && ttl.compareTo(renewInterval) <= 0) {
-            issues.add("租约有效期(" + ttl + ")不大于预期续约周期(" + renewInterval
-                + ")：一次抖动就会让续约跨过到期时间、把活着的节点判成失效并触发接管；请把 ypbin.lease.ttl 调到明显更大");
+        if (intervalValid && ttlValid && ttl.compareTo(renewInterval.plusMillis(worstRequestMs())) <= 0) {
+            issues.add("租约有效期(" + ttl + ")必须大于「预期续约周期(" + renewInterval + ") + 一次续约最坏耗时("
+                + worstRequestMs() + "ms)」：否则一次卡顿就会让续约跨过到期时间、把活着的节点判成失效并触发接管"
+                + "（最坏耗时按客户端 connect " + LeaseFeignConfiguration.CONNECT_TIMEOUT_MS + "ms + read "
+                + LeaseFeignConfiguration.READ_TIMEOUT_MS + "ms、不重试计算）");
         }
         return issues;
+    }
+
+    /**
+     * 一次续约的最坏耗时（毫秒）：客户端 connect + read，且不重试。
+     *
+     * <p>取值与客户端 {@code LeaseFeignConfiguration} 的契约常量一致；客户端覆盖了超时时，
+     * 本侧的「ttl 是否足够」判断会偏乐观——这是已知的跨进程约束，写在契约 §6 里。</p>
+     *
+     * @return 最坏耗时毫秒数
+     */
+    private int worstRequestMs() {
+        return LeaseFeignConfiguration.CONNECT_TIMEOUT_MS + LeaseFeignConfiguration.READ_TIMEOUT_MS;
     }
 
     /**

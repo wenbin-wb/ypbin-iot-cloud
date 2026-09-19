@@ -15,19 +15,32 @@
  */
 package cn.ypbin.iotcloud.access;
 
+import cn.ypbin.iotcloud.access.config.AccessProperties;
+import cn.ypbin.iotcloud.api.lease.ILeaseClient;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.cloud.openfeign.EnableFeignClients;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * 部署单元③ 设备接入的启动类（有状态）。
  *
- * <p><b>M0a 只有骨架</b>：P0 故意不接 ypbin-iot-starter（它尚未发布），
- * 也不含租约领取/续约与 self-fencing 状态机（P4 落地，IOT-CLOUD-SPEC.md §3.1①）。</p>
+ * <p><b>P4 落地了租约客户端与 self-fencing</b>：注册 → 领取 → 周期续约（默认 10s）→ 本地过期自检，
+ * 并把「该停采」变成真的停采（{@code TenantLinkManager}）。M0a 仍<b>不接协议栈</b>——
+ * {@code ypbin-iot-bom} 尚未发布，所以链路管理现在只做状态标记与日志，
+ * 但 spec §3.1① 要求的 self-fencing 判定语义已经完整且被用例钉住。</p>
+ *
+ * <p>{@code @EnableFeignClients} 只为 {@link ILeaseClient}；服务发现在 M0a 用 Spring Cloud 的
+ * {@code simple} 发现（关 Nacos，spec §4.5），business 地址在 yml 里配。</p>
  *
  * @author wenbin
  * @since 2026-09-18
  */
 @SpringBootApplication
+@EnableFeignClients(clients = ILeaseClient.class)
+@EnableScheduling
+@EnableConfigurationProperties(AccessProperties.class)
 public class AccessApplication {
 
     /**
