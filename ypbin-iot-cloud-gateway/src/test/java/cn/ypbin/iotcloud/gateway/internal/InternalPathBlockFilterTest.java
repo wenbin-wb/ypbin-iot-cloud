@@ -56,10 +56,39 @@ class InternalPathBlockFilterTest {
     }
 
     @Test
+    @DisplayName("无尾斜杠的内部路径（/business/internal）也必须被拦（此前会漏到鉴权 401）")
+    void shouldBlockInternalPathWithoutTrailingSlash() {
+        assertBlocked(MockServerWebExchange.from(MockServerHttpRequest.get("/business/internal")));
+    }
+
+    @Test
+    @DisplayName("另一个部署单元的内部路径同样被拦（access）")
+    void shouldBlockAccessInternalPath() {
+        assertBlocked(MockServerWebExchange
+            .from(MockServerHttpRequest.get("/access/internal/lease/acquire")));
+    }
+
+    @Test
     @DisplayName("普通业务路径必须放行（不能把封堵写成拦截一切）")
     void shouldPassThroughBusinessPath() {
-        MockServerWebExchange exchange = MockServerWebExchange
-            .from(MockServerHttpRequest.get("/business/devices"));
+        assertPassedThrough("/business/devices");
+    }
+
+    @Test
+    @DisplayName("internal 只是路径中段的业务路径必须放行（子串判据会误伤这两条）")
+    void shouldPassThroughPathsContainingInternalSegmentLater() {
+        assertPassedThrough("/business/devices/internal/points");
+        assertPassedThrough("/business/tenants/internal/devices");
+    }
+
+    @Test
+    @DisplayName("健康检查路径放行")
+    void shouldPassThroughActuatorHealth() {
+        assertPassedThrough("/actuator/health");
+    }
+
+    private void assertPassedThrough(String path) {
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get(path));
         AtomicBoolean chained = new AtomicBoolean();
 
         filter.filter(exchange, ignored -> {
@@ -67,7 +96,7 @@ class InternalPathBlockFilterTest {
             return Mono.empty();
         }).block();
 
-        assertThat(chained).isTrue();
+        assertThat(chained).as("路径 %s 应放行", path).isTrue();
     }
 
     private void assertBlocked(MockServerWebExchange exchange) {

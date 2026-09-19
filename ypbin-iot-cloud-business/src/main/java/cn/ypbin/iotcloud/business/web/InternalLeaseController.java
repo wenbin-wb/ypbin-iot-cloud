@@ -24,10 +24,12 @@ import cn.ypbin.iotcloud.api.lease.LeaseReleaseReq;
 import cn.ypbin.iotcloud.api.lease.LeaseRenewReq;
 import cn.ypbin.iotcloud.api.lease.LeaseRenewResp;
 import cn.ypbin.iotcloud.api.lease.TenantEpochBatchResp;
+import cn.ypbin.iotcloud.core.lease.LeaseProperties;
 import cn.ypbin.iotcloud.core.lease.LeaseService;
 import cn.ypbin.starter.core.model.R;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -51,6 +53,9 @@ import org.springframework.web.bind.annotation.RestController;
  *       fail-closed 校验 {@code X-Internal-Token}（common 模块装配，随本模块的依赖自动生效）；</li>
  *   <li><b>返回统一信封</b>：全部走 {@link R}，异常由 starter 的全局异常处理器转成 HTTP 200 + {@code R.code}
  *       （因此 business 必须依赖 {@code ypbin-starter-web}）。</li>
+ *   <li><b>随 {@code ypbin.lease.enabled} 一起开关</b>：关掉租约维护时这些端点<b>不注册</b>
+ *       （请求会拿到「接口不存在」的信封）。「功能关掉」的语义是<b>端点不存在</b>，
+ *       而不是「端点还在但一调就报错」——后者会让调用方误以为是自己参数错。</li>
  * </ol>
  *
  * @author wenbin
@@ -59,6 +64,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping(InternalLeaseController.BASE_PATH)
 @RequiredArgsConstructor
+@ConditionalOnProperty(prefix = LeaseProperties.PREFIX, name = "enabled", havingValue = "true",
+    matchIfMissing = true)
 public class InternalLeaseController {
 
     /** 内部端点前缀；必须与 {@code ILeaseClient} 的 {@code path} 一致。 */

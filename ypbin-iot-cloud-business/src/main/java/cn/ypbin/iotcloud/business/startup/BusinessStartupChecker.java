@@ -38,6 +38,8 @@ import org.springframework.util.StringUtils;
  *   <li><b>没配内部凭证 / 没配可分配租户</b>：前者让守卫 fail-closed 拒绝一切
  *       {@code /internal/**} 请求（安全上正确，但本地联调常忘）；后者让整条租约链路空跑
  *       （{@code acquire} 永远返回空、release 全部被忽略）——独立复核就把这一条列为「差点被假绿骗过」。</li>
+ *   <li>租约参数自身不合法（{@code ttl} 或 {@code expected-renew-interval} 为 0/负数）：不查它自己，
+ *       「有效期是否足够」的判定会被静默绕过。</li>
  * </ol>
  *
  * <p>校验逻辑与日志分离成 {@link #errors()} / {@link #warnings()} 两个纯方法，便于直接断言。</p>
@@ -66,6 +68,10 @@ public class BusinessStartupChecker implements InitializingBean {
 
     @Override
     public void afterPropertiesSet() {
+        if (!leaseProperties.isEnabled()) {
+            log.info("租约维护已关闭（{}）：/internal/lease/** 端点不会注册，失效扫描也不启动",
+                LeaseProperties.PREFIX + ".enabled");
+        }
         for (String warning : warnings()) {
             log.warn("业务服务启动自检：{}", warning);
         }
@@ -81,8 +87,22 @@ public class BusinessStartupChecker implements InitializingBean {
      */
     List<String> errors() {
         List<String> issues = new ArrayList<>();
+        if (!leaseProperties.isEnabled()) {
+            // 关掉租约维护时这些检查没有意义（组件都没装配），报出来只会误导排查
+            return issues;
+        }
         Duration ttl = leaseProperties.getTtl();
         Duration renewInterval = leaseProperties.getExpectedRenewInterval();
+        if (renewInterval.isZero() || renewInterval.isNegative()) {
+            // 不校验它自己会让「有效期是否足够」形同虚设：interval 配 0 时任何 ttl 都「大于」它
+            issues.add("ypbin.lease.expected-renew-interval 必须为正数（当前 " + renewInterval
+                + "）：为 0 或负数会让「租约有效期是否足够」的校验静默失效");
+            return issues;
+        }
+        if (ttl.isZero() || ttl.isNegative()) {
+            issues.add("ypbin.lease.ttl 必须为正数（当前 " + ttl + "）");
+            return issues;
+        }
         if (ttl.compareTo(renewInterval) <= 0) {
             issues.add("租约有效期(" + ttl + ")不大于预期续约周期(" + renewInterval
                 + ")：一次抖动就会让续约跨过到期时间、把活着的节点判成失效并触发接管；请把 ypbin.lease.ttl 调到明显更大");
@@ -101,7 +121,7 @@ public class BusinessStartupChecker implements InitializingBean {
             issues.add("未配置 " + InternalTokenConstants.TOKEN_PROPERTY
                 + "：入站守卫会 fail-closed 拒绝全部 /internal/** 请求（安全上正确，但本地联调常忘）");
         }
-        if (leaseProperties.getAssignableTenantIds().isEmpty()) {
+        if (leaseProperties.isEnabled() && leaseProperties.getAssignableTenantIds().isEmpty()) {
             issues.add("ypbin.lease.assignable-tenant-ids 为空：不会有任何租户被分配，租约链路会空跑"
                 + "（M0a 这是默认值；跑验收时请显式传入租户）");
         }

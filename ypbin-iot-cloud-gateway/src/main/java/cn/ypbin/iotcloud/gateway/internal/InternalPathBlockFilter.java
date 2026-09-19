@@ -56,8 +56,8 @@ public class InternalPathBlockFilter implements WebFilter, Ordered {
 
     private static final Logger log = LoggerFactory.getLogger(InternalPathBlockFilter.class);
 
-    /** 内部端点的路径片段：{@code /internal/...} 与 {@code /business/internal/...} 都会命中。 */
-    static final String INTERNAL_SEGMENT = "/internal/";
+    /** 内部端点所在的路径段名。 */
+    static final String INTERNAL_SEGMENT = "internal";
 
     private final ObjectMapper objectMapper;
 
@@ -73,7 +73,7 @@ public class InternalPathBlockFilter implements WebFilter, Ordered {
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         String path = exchange.getRequest().getURI().getPath();
-        if (!path.contains(INTERNAL_SEGMENT)) {
+        if (!isInternalApiPath(path)) {
             return chain.filter(exchange);
         }
         log.warn("网关拒绝内部端点访问（内部端点只允许集群内直连）：path={} remote={}",
@@ -84,6 +84,31 @@ public class InternalPathBlockFilter implements WebFilter, Ordered {
     @Override
     public int getOrder() {
         return Ordered.HIGHEST_PRECEDENCE;
+    }
+
+    /**
+     * 是否为内部端点路径。
+     *
+     * <p>结构化判据（不是子串匹配）：网关的约定是「URL 第一段 = 服务短名，转发前 StripPrefix 剥掉」，
+     * 因此内部端点只有两种形态——{@code /internal/...}（不带服务前缀）与
+     * {@code /{服务}/internal/...}（带前缀，剥掉后即形态一）。</p>
+     *
+     * <p>此前用 {@code path.contains("/internal/")} 判断，实测有两类问题：
+     * ① 误伤——{@code /business/devices/internal/points} 这种「internal 只是路径中段」的普通业务路径会被 404；
+     * ② 漏判——{@code /business/internal}（无尾斜杠）不被拦（会落到鉴权 401）。
+     * 段判据把两者都修正：只看<b>第一段或第二段</b>是否等于 {@code internal}。</p>
+     *
+     * @param path 请求路径
+     * @return 是否应拦
+     */
+    private boolean isInternalApiPath(String path) {
+        String trimmed = path.startsWith("/") ? path.substring(1) : path;
+        if (trimmed.isEmpty()) {
+            return false;
+        }
+        String[] segments = trimmed.split("/");
+        return INTERNAL_SEGMENT.equals(segments[0])
+            || (segments.length > 1 && INTERNAL_SEGMENT.equals(segments[1]));
     }
 
     /** 写出与「接口不存在」一致的统一信封（不区分「路由不存在」与「内部端点被拦」，避免暴露拓扑）。 */

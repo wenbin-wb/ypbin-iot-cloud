@@ -40,7 +40,8 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 class LeaseAutoConfigurationTest {
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
-        .withConfiguration(AutoConfigurations.of(LeaseAutoConfiguration.class));
+        .withConfiguration(AutoConfigurations.of(LeasePropertiesAutoConfiguration.class,
+            LeaseAutoConfiguration.class));
 
     @Test
     @DisplayName("默认装配：存储 / 服务 / 扫描器 / 参数四件套")
@@ -54,13 +55,15 @@ class LeaseAutoConfigurationTest {
     }
 
     @Test
-    @DisplayName("ypbin.lease.enabled=false 时四件套整体不装配（本地只想跑业务接口的场景）")
-    void shouldNotRegisterWhenDisabled() {
+    @DisplayName("ypbin.lease.enabled=false：组件都不装配，但**属性 bean 必须还在**（否则注入它的 bean 会让应用起不来）")
+    void shouldNotRegisterBeansButKeepPropertiesWhenDisabled() {
         runner.withPropertyValues("ypbin.lease.enabled=false").run(context -> {
             assertThat(context).doesNotHaveBean(InMemoryLeaseStore.class);
             assertThat(context).doesNotHaveBean(LeaseService.class);
             assertThat(context).doesNotHaveBean(LeaseExpiryScanner.class);
-            assertThat(context).doesNotHaveBean(LeaseProperties.class);
+            assertThat(context)
+                .as("属性注册无条件：关掉租约维护不应导致任何注入 LeaseProperties 的组件启动失败")
+                .hasSingleBean(LeaseProperties.class);
         });
     }
 

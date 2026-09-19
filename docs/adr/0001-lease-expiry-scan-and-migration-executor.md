@@ -73,7 +73,7 @@ M0a 还没有台账表（迁移在 M0b 定稿），但**这两条决策必须在
 | 网关侧封堵内部端点 | 网关路由是 `Path=/business/**` + `StripPrefix=1`，会把 `/business/internal/**` 改写成下游的 `/internal/**` ⇒ 网关必须显式拒绝含 `/internal/` 的路径（`InternalPathBlockFilter`），并把 `X-Internal-Token` 加进剥离名单 |
 | 容量可缺省 | `register` 的 `maxTenants` 为空表示**不限**（自用单节点全量，spec §3.1①）；M0b 换表后该语义要保持可表达 |
 | `business` 需要 `@EnableScheduling` | 扫描器由 core 提供，调度开关在 business 启动类上（避免库模块自己开全局调度） |
-| M0b 必办清单 | ① 建 `tenant_node_assignment` 表并把 `InMemoryLeaseStore` 换成数据库实现（保留 `LeaseService` 的判定逻辑）；② 扫描改原子 UPDATE + 受影响行驱动副作用；③ 迁移作业 + schema 版本校验 + `deploy/sql` 漂移门禁 |
+| M0b 必办清单 | ① 建 `tenant_node_assignment` 表并把 `InMemoryLeaseStore` 换成数据库实现（保留 `LeaseService` 的判定逻辑）；② 扫描改原子 UPDATE + 受影响行驱动副作用；③ 迁移作业 + schema 版本校验 + `deploy/sql` 漂移门禁；④ **归属变更与 epoch 递增必须同事务**（§2.1，否则会出现「归属变了 epoch 没涨」，让 access 的对账永远看不出差异）；⑤ **`acquire` 的容量分配必须原子**（§2.1，M0a 在单副本下就出过双主：不能沿用「先查一遍再逐个写」）；⑥ 给「**释放→再分配不涨 epoch**」与 §3.1② 快照准入（`snapshot.epoch > local.epoch`）的关系一个明确结论（要么释放-再分配也递增，要么让快照准入不依赖归属 epoch） |
 
 ## 5. 未采纳的选项
 
