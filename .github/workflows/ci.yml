@@ -40,6 +40,9 @@ jobs:
       # ⚠️ 锁定到具体 SHA，不用 --depth 1 的移动引用：iot-starter 侧是 SNAPSHOT，
       # 若跟随分支漂移，同一份本仓代码在不同时间会构建出不同结果（供应链可复现性）。
       # 升级 iot-starter 时必须**显式**改这里的 SHA（有意为之的 bump，而不是被上游悄悄带走）。
+      # 两个代价要说清：① `fetch <sha>` 要求该提交在服务端**仍可达**（上游 force-push / GC 掉它会让本步失败）；
+      # ② 这里只锁住 CI —— 开发者本机的 `~/.m2` 里的 iot SNAPSHOT 没有任何门禁，改了 iot-starter
+      #    却忘了同步本仓会影响本地构建。
       - name: 检出 iot-starter 到 workspace 之外（P4b 依赖，未发布，需本地安装）
         env:
           IOT_STARTER_SHA: c4b28d1024108e1cc8710a305a63a358d7036ce9

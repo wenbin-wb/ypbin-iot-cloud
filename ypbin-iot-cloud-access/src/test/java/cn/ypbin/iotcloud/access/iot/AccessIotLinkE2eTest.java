@@ -21,6 +21,7 @@ import static org.awaitility.Awaitility.await;
 import cn.ypbin.iot.core.spi.DataSink;
 import cn.ypbin.iot.spring.autoconfigure.IotLifecycle;
 import cn.ypbin.iotcloud.access.link.TenantLinkManager;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -111,6 +112,9 @@ class AccessIotLinkE2eTest {
     @Autowired
     private DataSink dataSink;
 
+    @Autowired
+    private MeterRegistry meterRegistry;
+
     @Test
     @DisplayName("classpath 上有 iot-starter 时：链路管理换成真建链实现（接缝生效），出口是本次实现的出口")
     void iotStarterOnClasspathShouldReplaceLinkManager() {
@@ -158,6 +162,9 @@ class AccessIotLinkE2eTest {
         // 真建链：框架侧会话数 0 → 1；ACCEPTED 只说明「服务端被连过」（探测或绑定都可能），
         // 绑定成功的硬证据是 sessionCount（以及下面 fence 后的 EOF）。
         await().atMost(Duration.ofSeconds(15)).until(() -> lifecycle.sessionCount() == 1);
+        // F3：真实框架下 gauge 必须与框架会话数一致（它取的就是会话表）
+        assertThat(meterRegistry.get("iotcloud.access.link.bound.devices").gauge().value())
+            .isEqualTo((double) lifecycle.sessionCount());
         await().atMost(Duration.ofSeconds(5)).until(() -> !ACCEPTED.isEmpty());
 
         linkManager.fence(TENANT, "e2e：租约被撤销");

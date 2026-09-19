@@ -70,6 +70,9 @@ public interface TenantLinkManager {
     /**
      * 当前正在采集的租户集合（只读快照）。
      *
+     * <p>与 {@link #isCollecting(Long)} 同一口径：包含「负责但零链路」的租户
+     * （探测失败/未配设备）。真实链路数看 {@code iotcloud.access.link.bound.devices}。</p>
+     *
      * @return 租户 ID 集合，永不为 {@code null}
      */
     Set<Long> collectingTenants();

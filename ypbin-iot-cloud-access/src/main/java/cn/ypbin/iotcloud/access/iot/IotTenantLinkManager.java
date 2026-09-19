@@ -67,7 +67,12 @@ public class IotTenantLinkManager implements TenantLinkManager {
     private final Counter bound;
     private final Counter fenced;
 
-    /** 本节点认为自己在采的租户（= 持有租约且已发起绑定）。 */
+    /**
+     * 本节点<b>负责</b>的租户（持有租约且已发起绑定）。
+     *
+     * <p>语义边界：它不等于「链路一定活着」——探测失败或没配设备时也是「负责但零链路」。
+     * 真实链路数看 {@code iotcloud.access.link.bound.devices}（取自框架会话表）。</p>
+     */
     private final Set<Long> collecting = ConcurrentHashMap.newKeySet();
 
     /**
@@ -91,9 +96,10 @@ public class IotTenantLinkManager implements TenantLinkManager {
             .description("因租约失效/撤销而解绑（断链）的设备次数").register(meterRegistry);
         // F3（复核指出的可观测失真）：`collecting` 只说明「本节点负责哪些租户」，不等于链路真的活着
         // （设备探测失败或没配设备时为「负责但零链路」）。真实链路数看这个 gauge。
-        Gauge.builder(METRIC_PREFIX + "link.bound.devices", registry,
-                manager -> manager.boundDeviceIds().size())
-            .description("当前真正绑定（会话存活）的设备数").register(meterRegistry);
+        // 取值用 **框架的会话表** 而不是「我们登记过的设备」：`IotLifecycle.onDeviceChange` 在 bind 失败时
+        // 只记 WARN、**不会回滚注册表**，拿注册表当数据源会高报（复核第 3 条的残留）。sessions() 才字面成立。
+        Gauge.builder(METRIC_PREFIX + "link.bound.devices", lifecycle, IotLifecycle::sessionCount)
+            .description("当前真正存活的设备会话数（取自 iot-starter 的会话表）").register(meterRegistry);
     }
 
     @Override
@@ -114,6 +120,10 @@ public class IotTenantLinkManager implements TenantLinkManager {
         // F2（复核用确定性单测证明的真实缺陷）：探测是要走网络的，期间可能已经发生 fencing
         // （租约被撤销/过期、或节点级 fencing）。此时如果照样登记，就会把「已停采的租户」的设备重新绑上，
         // 而 holdings 里已经没有它 ⇒ 之后再也不会有人来 fence ⇒ **链路永久泄漏、self-fencing 被破坏**。
+        //
+        // 残留（复核第二轮如实指出）：重判与 addDevices 之间仍是 check-then-act，窗口从「整个探测时长」
+        // 缩到微秒级，理论上没 100% 消除。彻底闭环要按租户加锁或把「负责状态」并入 registry 内部状态——
+        // 留给 M0b（那时设备量才会让这个窗口可观测到）。
         if (!collecting.contains(tenantId)) {
             log.warn("租户在设备探测期间已被停采，放弃绑定（避免泄漏不会被回收的链路）：tenantId={} 设备数={}",
                 LogSanitizer.sanitize(tenantId), reachable.size());

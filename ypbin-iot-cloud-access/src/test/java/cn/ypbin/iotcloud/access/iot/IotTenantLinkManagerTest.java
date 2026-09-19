@@ -140,14 +140,30 @@ class IotTenantLinkManagerTest {
     }
 
     @Test
-    @DisplayName("F3：bound.devices gauge 反映真实绑定数（`collecting` 只说「负责」，链路数看它）")
-    void boundDevicesGaugeShouldReflectRealLinks() {
+    @DisplayName("F3：bound.devices gauge 取自框架会话表（`collecting` 只说「负责」，真实链路数看它）")
+    void boundDevicesGaugeShouldReflectRealSessions() {
         reachable(true);
-
         manager.startCollecting(11L);
+
+        // 关键：gauge 的数据源必须是**框架的会话表**，不是「我们登记过的设备」——
+        // bind 失败时框架不回滚注册表，拿注册表当数据源会高报（复核第 3 条）。
+        when(lifecycle.sessionCount()).thenReturn(2);
         assertThat(meterRegistry.get("iotcloud.access.link.bound.devices").gauge().value()).isEqualTo(2.0d);
 
         manager.fence(11L, "撤销");
+        when(lifecycle.sessionCount()).thenReturn(0);
+        assertThat(meterRegistry.get("iotcloud.access.link.bound.devices").gauge().value()).isZero();
+    }
+
+    @Test
+    @DisplayName("F3：登记了设备但框架 bind 失败时，gauge 不高报（会话表为准）")
+    void boundDevicesGaugeShouldNotOverReportWhenBindFails() {
+        reachable(true);
+        manager.startCollecting(11L);
+
+        // 注册表里有 2 台（startCollecting 已登记），但框架侧一个会话都没有（bind 全失败）
+        assertThat(registry.boundDeviceIds()).hasSize(2);
+        when(lifecycle.sessionCount()).thenReturn(0);
         assertThat(meterRegistry.get("iotcloud.access.link.bound.devices").gauge().value()).isZero();
     }
 
