@@ -63,8 +63,14 @@ public interface ILeaseClient {
     /**
      * 续约（周期性，默认 10s）。
      *
-     * <p><b>响应里的 {@code revokedTenantIds} 是 self-fencing 的判据</b>：节点必须对其中每个租户
-     * 立即断链并停止采集，否则可能出现新旧节点同时轮询同一台设备。</p>
+     * <p>响应给出三样东西，共同构成 self-fencing 的判据：</p>
+     * <ul>
+     *   <li>{@code renewedLeases}：逐租户的新到期时间与 epoch（节点据此刷新本地到期时间）；</li>
+     *   <li>{@code revokedTenantIds}：已被撤销/接管的租户 —— 节点必须对它们立即断链并停止采集，
+     *       否则可能出现新旧节点同时轮询同一台设备；</li>
+     *   <li>{@code nodeFenced}：节点级失效信号 —— 为真时必须整体停采后重新注册。</li>
+     * </ul>
+     * <p>判据的封装实现见 {@link LeaseEpochRules#needsSelfFence(LeaseState, java.time.LocalDateTime, java.time.LocalDateTime)}。</p>
      *
      * @param req 续约请求
      * @return 续约结果（含被撤销的租户）

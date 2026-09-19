@@ -17,6 +17,7 @@ package cn.ypbin.iotcloud.api.lease;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import java.util.List;
 import lombok.Getter;
 import lombok.Setter;
@@ -41,6 +42,7 @@ public class LeaseRenewReq {
      * <p><b>允许为空集合</b>（表示节点此刻没有持有任何租约，是合法状态，例如刚启动或刚释放完）；
      * 但为 {@code null} 时不合法。</p>
      */
+    @NotNull(message = "续约条目列表不能为 null（可以是空集合）")
     @Valid
     private List<LeaseRenewItem> leases;
 }

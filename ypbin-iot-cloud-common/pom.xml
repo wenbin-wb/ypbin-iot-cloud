@@ -47,11 +47,6 @@
             <artifactId>spring-boot-configuration-processor</artifactId>
             <optional>true</optional>
         </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
-            <scope>test</scope>
-        </dependency>
         <!--
           仅测试作用域：用于证明「WebFlux（反应式）应用不会被装配入站守卫」——
           本仓 gateway 正是 WebFlux 应用，若守卫配置泄漏过去，Boot 会把网关判成 Servlet 应用并破坏它。

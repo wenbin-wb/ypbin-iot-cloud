@@ -15,6 +15,7 @@
  */
 package cn.ypbin.iotcloud.api.lease;
 
+import jakarta.validation.constraints.NotNull;
 import java.time.LocalDateTime;
 import lombok.Getter;
 import lombok.Setter;
@@ -33,12 +34,15 @@ import lombok.Setter;
 @Setter
 public class LeaseRenewAck {
 
-    /** 租户 ID。 */
+    /** 租户 ID（business 必须填）。 */
+    @NotNull
     private Long tenantId;
 
-    /** 该租户续约后的新到期时间。 */
+    /** 该租户续约后的新到期时间（business 必须填；为空会让节点无法刷新本地到期时间）。 */
+    @NotNull
     private LocalDateTime leaseExpireAt;
 
-    /** 该租户当前的台账版本号（节点据此判断自己是否落后）。 */
+    /** 该租户当前的台账版本号（business 必须填；节点据此判断自己是否落后）。 */
+    @NotNull
     private Long epoch;
 }

@@ -32,6 +32,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
 
 /**
  * 源码级规范门禁（第一批门禁的第 2 项）。
@@ -179,12 +180,28 @@ class SourceConventionTest {
             List<String> lines = readLines(imports);
             for (int index = 0; index < lines.size(); index++) {
                 String line = lines.get(index).trim();
-                if (line.isEmpty() || line.startsWith("#") || FQCN.matcher(line).matches()) {
+                if (line.isEmpty() || line.startsWith("#")) {
                     continue;
                 }
-                // Spring 的 imports 解析器只按 # 截断注释：/* */ 之类的内容会被当成类名加载
-                // 并导致启动失败（实测：IllegalStateException: Unable to read meta-data for class */）
-                violations.add(REPO_ROOT.relativize(imports) + ":" + (index + 1) + " -> " + line);
+                if (!FQCN.matcher(line).matches()) {
+                    // Spring 的 imports 解析器只按 # 截断注释：/* */ 之类的内容会被当成类名加载
+                    // 并导致启动失败（实测：IllegalStateException: Unable to read meta-data for class */）
+                    violations.add(REPO_ROOT.relativize(imports) + ":" + (index + 1) + " -> " + line);
+                    continue;
+                }
+                // 格式合法还不够：**错拼一个类型名**同样是「门禁全绿 + 启动才炸」。
+                // 这里真的把它加载出来（不初始化，避免触发静态副作用），并要求它是 @AutoConfiguration。
+                try {
+                    Class<?> type = Class.forName(line, false,
+                        Thread.currentThread().getContextClassLoader());
+                    if (!type.isAnnotationPresent(AutoConfiguration.class)) {
+                        violations.add(REPO_ROOT.relativize(imports) + ":" + (index + 1)
+                            + " -> " + line + " 不是 @AutoConfiguration 类");
+                    }
+                } catch (ClassNotFoundException e) {
+                    violations.add(REPO_ROOT.relativize(imports) + ":" + (index + 1)
+                        + " -> " + line + " 在 classpath 上不存在（错拼的类型名会让启动期才失败）");
+                }
             }
         }
         assertThat(violations)
@@ -193,22 +210,53 @@ class SourceConventionTest {
     }
 
     @Test
-    @DisplayName("SRC-06 安全敏感凭证比较必须走 MessageDigest.isEqual（禁退化成 String.equals）")
+    @DisplayName("SRC-06 入站守卫里的凭证比较必须走 MessageDigest.isEqual（禁退化成 String.equals）")
     void internalTokenComparisonMustBeConstantTime() {
         List<String> violations = new ArrayList<>();
+        int scanned = 0;
         for (Path file : mainJavaFiles()) {
-            if (!file.getFileName().toString().equals("InternalTokenGuardInterceptor.java")) {
+            String code = stripCommentsAndLiterals(read(file));
+            if (!isInboundTokenGuardSource(code)) {
                 continue;
             }
-            String code = stripCommentsAndLiterals(read(file));
-            if (!code.contains("MessageDigest.isEqual(")) {
+            scanned++;
+            if (!usesConstantTimeComparison(code)) {
                 violations.add(REPO_ROOT.relativize(file)
                     + " -> 未使用 MessageDigest.isEqual 进行凭证比较（常量时间比较是硬要求）");
             }
         }
+        // 教训（母仓教训七/八）：规则必须证明「真的扫到了东西」——按文件名找时，改名即静默放行
+        assertThat(scanned)
+            .as("必须至少扫到一个入站守卫源码，否则本规则是空跑")
+            .isPositive();
         assertThat(violations)
             .as("内部凭证比较必须用 MessageDigest.isEqual；退化成 equals 会引入计时侧信道")
             .isEmpty();
+    }
+
+    /**
+     * 是否是「入站凭证守卫」源码（按<b>语义</b>识别，不按文件名——按文件名会被改名绕过）。
+     *
+     * <p>约定：守卫的凭证比较必须写在守卫自己里（`MessageDigest.isEqual` 就在本文件内），
+     * 这样安全关键点始终可见可审；若将来把比较抽到 helper，本规则与本注释须同步更新。</p>
+     *
+     * @param strippedCode 已剥离注释与字面量的源码
+     * @return 是入站守卫源码时返回 {@code true}
+     */
+    static boolean isInboundTokenGuardSource(String strippedCode) {
+        boolean isInterceptor = strippedCode.contains("HandlerInterceptor")
+                || strippedCode.contains("preHandle(");
+        return isInterceptor && strippedCode.contains("TOKEN_HEADER");
+    }
+
+    /**
+     * 是否使用了常量时间比较。
+     *
+     * @param strippedCode 已剥离注释与字面量的源码
+     * @return 调用了 {@code MessageDigest.isEqual} 时返回 {@code true}
+     */
+    static boolean usesConstantTimeComparison(String strippedCode) {
+        return strippedCode.contains("MessageDigest.isEqual(");
     }
 
     @Test
@@ -304,6 +352,20 @@ class SourceConventionTest {
         assertThat(stripCommentsAndLiterals(
                 "// 说明：用 MessageDigest.isEqual 比较\nconfigured.equals(presented);")
                 .contains("MessageDigest.isEqual(")).isFalse();
+        // SRC-06 自检：语义识别（不依赖文件名）+ 两个方向的判定
+        String guardWithoutConstantTime = stripCommentsAndLiterals(
+                "class X implements HandlerInterceptor {\n"
+                + "  boolean preHandle() { return configured.equals(request.getHeader(TOKEN_HEADER)); }\n}");
+        assertThat(isInboundTokenGuardSource(guardWithoutConstantTime)).isTrue();
+        assertThat(usesConstantTimeComparison(guardWithoutConstantTime)).isFalse();
+        String guardWithConstantTime = stripCommentsAndLiterals(
+                "class X implements HandlerInterceptor {\n"
+                + "  boolean preHandle() { return MessageDigest.isEqual(a, b); }\n}");
+        assertThat(usesConstantTimeComparison(guardWithConstantTime)).isTrue();
+        // 出站侧（只加头、不比较）不得被误判为入站守卫
+        assertThat(isInboundTokenGuardSource(stripCommentsAndLiterals(
+                "class Y implements RequestInterceptor {\n"
+                + "  void apply() { template.header(TOKEN_HEADER, token); }\n}"))).isFalse();
         assertThat(BEAN_ANNOTATION.matcher("    @Bean").matches()).isTrue();
         assertThat(CONDITIONAL_ON_MISSING_BEAN).isNotBlank();
         assertThat(REPO_ROOT.resolve(MODULE_PREFIX + "common")).isDirectory();

@@ -57,12 +57,16 @@ class LeaseContractValidationTest {
     }
 
     @Test
-    @DisplayName("续约请求必须带节点标识；租约条目**允许为空**（节点此刻无租约是合法状态）")
-    void renewShouldRequireNodeIdButAllowEmptyLeases() {
+    @DisplayName("续约请求：节点标识必填、租约列表不可为 null，但**允许空集合**（节点此刻无租约合法）")
+    void renewShouldRequireNodeIdAndNonNullLeasesButAllowEmpty() {
+        // 两个字段都缺 → 2 条违规
+        assertThat(validator.validate(new LeaseRenewReq())).hasSize(2);
+
         LeaseRenewReq req = new LeaseRenewReq();
+        req.setAccessNode("access-1");
+        req.setLeases(null);
         assertThat(validator.validate(req)).hasSize(1);
 
-        req.setAccessNode("access-1");
         req.setLeases(List.of());
         assertThat(validator.validate(req)).isEmpty();
     }

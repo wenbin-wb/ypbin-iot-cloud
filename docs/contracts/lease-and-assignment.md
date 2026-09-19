@@ -23,7 +23,7 @@ business 用 **租约 + 失效检测 + 两阶段接管**保证「同一时刻只
 | 3 | `renew` | 周期性续约（默认 **10s**） | 幂等 | 响应给出**逐租户**新到期时间（`renewedLeases`）、被撤销租户（`revokedTenantIds`）与**节点级**信号（`nodeFenced`），共同构成 self-fencing 判据（见 §4） |
 | 4 | `release` | 节点正常下线，归还租户 | 幂等（重复释放不报错） | 异常宕机不走此路径 → 由「到期 + 接管」兜底 |
 | 5 | `queryAssignment` | 查某租户当前归属（节点/到期时间/epoch/状态） | 只读 | 无归属时返回 `null` 数据体（`R.data=null`），不是错误 |
-| 6 | `batchEpoch` | **一次拉全量**租户的 `epoch`（周期对账用，默认 5 分钟） | 只读 | 响应带 `readAt`（读取完成时间）以识别撕裂读；判据**只用 epoch**（见 §5） |
+| 6 | `batchEpoch` | **一次拉全量**租户的 `epoch`（周期对账用，默认 5 分钟） | 只读 | 响应带 `readAt`（读取完成时间，供实现侧做一致性校验与观测）；判据**只用 epoch**（见 §5） |
 
 > 为什么「批量拉全量」而不是「每租户一次」：逐租户调用会在租户数增长时变成 N 次 RPC，
 > 既慢又给 business 制造无谓压力（spec §3.1③ 明确要求批量）。
@@ -73,7 +73,9 @@ business 用 **租约 + 失效检测 + 两阶段接管**保证「同一时刻只
    - 判据必须用**组合判据** `LeaseEpochRules.needsSelfFence(state, leaseExpireAt, now)`
      （状态失效 **或** 已过期，二者取或）——只判状态会漏掉「ACTIVE 但已过期」这种长 GC 停顿/网络分区下的真实形态；
    - 到期时间由 `renew` 响应的**逐租户**回执（`renewedLeases[].leaseExpireAt`）刷新；
-   - `revokedTenantIds`（逐租户被撤销）与 `nodeFenced`（节点级整体失效）同样触发 fencing。
+   - `revokedTenantIds`（逐租户被撤销）与 `nodeFenced`（节点级整体失效）同样触发 fencing；
+   - **续约连续失败也必须触发 self-fencing**：节点无法证明自己还活着时不得继续采集（失败阈值由实现定，
+     但「连续失败 → 停采」这条规则本身是契约的一部分，不能只在代码注释里）。
    - **不能只靠「新节点去断旧节点」**：Modbus/OPC UA 的 socket 在新节点手里没有任何办法关闭；
      而旧节点若只是长 GC 停顿或网络分区，进程还活着、socket 还开着 → **新旧同时轮询同一台 PLC**。
 
@@ -101,7 +103,7 @@ business 用 **租约 + 失效检测 + 两阶段接管**保证「同一时刻只
 | 网关剥离 | 网关剥离名单**必须显式包含** `X-Gateway-Signed`（starter 默认名单不含它） | spec §4.4-2（P2 落实） |
 | 响应体 | 一律 HTTP 200 + `R.code`；集合字段**永不为 null**（默认空集合，显式置 null 也被 getter 兜底为空集合，有测试锁定） | 本契约 DTO |
 | 重试 | **显式 `Retryer.NEVER_RETRY`**：默认 `Retryer.Default` 是 5 次重试，单次续约最坏 ≈21.5s > 10s 周期，会把节点卡成失效；续约靠下一轮自然重发，需要重试的场景由上层做**有界**重试 | `LeaseFeignConfiguration` |
-| 超时/重试的宿主覆盖 | 两个 Bean 都是 `@ConditionalOnMissingBean`：宿主可覆盖，但**覆盖即自负「不得让单次续约跨过周期」的责任** | 同上 |
+| 超时/重试的宿主覆盖 | 两个 Bean 都是 `@ConditionalOnMissingBean`（`SearchStrategy.ALL`，宿主在祖先链任意位置定义即可覆盖）：**覆盖即自负「不得让单次续约跨过周期」的责任**；P3/P4 应加启动期校验/告警把这条提醒变成可执行约束 | `LeaseFeignConfiguration` + 独立复核 §4 |
 | HTTP 200 信封的前提 | `BusinessException → HTTP 200 + R.code=401` 由 **`ypbin-starter-web` 的全局异常处理器**完成；`common` 只依赖 `starter-core` → **P3 起 business 必须显式引入 `ypbin-starter-web`**（版本已在 `-dependencies` 预管） | 独立复核 F8 |
 | 时间假设 | 到期判断用 `LocalDateTime` 直接比较，**隐含「各部署单元同时区且 NTP 同步」**；跨时区部署需改 `Instant`（spec §6 允许协议时序用 `Instant`） | 独立复核 |
 
