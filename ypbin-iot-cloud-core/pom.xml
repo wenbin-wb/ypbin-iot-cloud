@@ -14,5 +14,32 @@
     <artifactId>ypbin-iot-cloud-core</artifactId>
 
     <name>${project.artifactId}</name>
-    <description>业务核心库：产品/物模型/设备/数据/规则/告警（M0a 仅占位）</description>
+    <description>业务核心库：产品/物模型/设备/数据/规则/告警（M0a 先落「租约归属维护 + 失效检测」）</description>
+
+    <dependencies>
+        <!-- 租约契约（DTO / 状态枚举 / 共享判定规则）：实现与契约同源，避免两侧各写一份语义而悄悄分叉 -->
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-iot-cloud-api</artifactId>
+        </dependency>
+        <!-- BusinessException + GlobalErrorCode：业务错误统一走 starter 的统一异常（HTTP 200 + R.code） -->
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-starter-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
 </project>

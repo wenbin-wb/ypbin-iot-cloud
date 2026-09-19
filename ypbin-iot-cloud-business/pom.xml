@@ -30,6 +30,21 @@
             <groupId>cn.ypbin</groupId>
             <artifactId>ypbin-iot-cloud-openapi</artifactId>
         </dependency>
+        <!-- 租约契约：控制器直接暴露 /internal/lease/** 的 DTO（与 access 侧同一份契约） -->
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-iot-cloud-api</artifactId>
+        </dependency>
+        <!-- 入站守卫（/internal/** 的 X-Internal-Token 校验，fail-closed） -->
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-iot-cloud-common</artifactId>
+        </dependency>
+        <!-- 统一异常：把守卫/业务抛的 BusinessException 转成 HTTP 200 + R.code（P1 已核实它在 starter-web 里） -->
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-starter-web</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -39,6 +54,24 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- lombok 在各模块都是 optional（不传递），用到就要显式声明 -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!--
+          MockMvc 测试支持（@AutoConfigureMockMvc）：Spring Boot 4 把它从
+          spring-boot-test-autoconfigure 拆到了 spring-boot-webmvc-test，
+          包名也从 org.springframework.boot.test.autoconfigure.web.servlet 变为
+          org.springframework.boot.webmvc.test.autoconfigure——**starter-test 不再带它**，必须显式声明。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-webmvc-test</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 

@@ -17,17 +17,22 @@ package cn.ypbin.iotcloud.business;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * 部署单元② 业务服务的启动类。
  *
- * <p><b>M0a 只有骨架</b>：装配 auth / core / openapi 三个库，但没有任何业务逻辑；
- * 内部端点与租约维护侧的扫描骨架在 P3 落地（IOT-CLOUD-SPEC.md §10）。</p>
+ * <p>装配 auth / core / openapi 三个库。P3 起承担两件事：① 暴露 {@code /internal/lease/**}
+ * （access 节点的注册/领取/续约/释放/对账，契约见 {@code ILeaseClient}）；② 跑租约失效扫描
+ * （{@code @EnableScheduling} 就是为它开的，见 core 的 {@code LeaseExpiryScanner}）。</p>
+ *
+ * <p>数据库在 M0a 不接：Flyway 迁移形态与 schema 校验在 M0b 定稿（§12.2）。</p>
  *
  * @author wenbin
  * @since 2026-09-18
  */
 @SpringBootApplication
+@EnableScheduling
 public class BusinessApplication {
 
     /**

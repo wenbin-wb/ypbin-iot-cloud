@@ -83,6 +83,17 @@
                 <artifactId>ypbin-starter-cloud-gateway</artifactId>
                 <version>${ypbin-starter.version}</version>
             </dependency>
+            <!--
+              starter-web 的传递依赖也必须显式钉版本：starter 侧用 CI-friendly 的 ${revision}，
+              而本仓也定义了同名属性（0.1.0-SNAPSHOT），于是 starter-web → starter-json 会解析成
+              0.1.0-SNAPSHOT 而「找不到构件」（P0 已踩过一次，属同一根因）。
+              凡新增 starter 模块依赖，都要在这里补一条。
+            -->
+            <dependency>
+                <groupId>cn.ypbin</groupId>
+                <artifactId>ypbin-starter-json</artifactId>
+                <version>${ypbin-starter.version}</version>
+            </dependency>
 
             <!-- ===== 本仓模块（版本统一由 revision 控制）===== -->
             <dependency>

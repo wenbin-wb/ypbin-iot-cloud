@@ -1,13 +1,26 @@
-# 部署单元② 业务服务（M0a 骨架）。
+# 部署单元② 业务服务（P3：内部租约端点 + 失效扫描）。
 #
-# 只有应用名与端口：内部端点（带入站守卫）、租约扫描与失效判定骨架在 P3 落地
-# （IOT-CLOUD-SPEC.md §4.2 / §3.1①）。M0a 不接数据库（Flyway 迁移在 M0b 定稿，§12.2）。
+# 装配 auth / core / openapi 三个库（IOT-CLOUD-SPEC.md §4.2）；P3 起承担 access↔business 的
+# 租约契约（§3.1①⑦）与「过期 → 待接管」的失效检测。M0a 不接数据库（Flyway 迁移在 M0b 定稿，§12.2）。
 server:
   port: 18081
 
 spring:
   application:
     name: ypbin-iot-cloud-business
+
+ypbin:
+  internal:
+    # 内部调用凭证（/internal/** 的 X-Internal-Token）。**未配置时守卫 fail-closed 整体拒绝**，
+    # 所以本地起服务必须显式给值；生产由部署脚本注入（compose 的 .env）。
+    token: ${YPBIN_INTERNAL_TOKEN:}
+  lease:
+    # 租约有效期：必须明显大于 access 的续约周期（默认 10s），否则抖动即被判过期
+    ttl: 30s
+    # 失效扫描周期（毫秒）：也是「节点退出 → 待接管」的最坏延迟
+    scan-interval-ms: 15000
+    # M0a 的临时租户来源（M0a 没有台账表，M0b 换成从表里读）。留空 = 不分配任何租户
+    assignable-tenant-ids: []
 
 management:
   endpoints:
