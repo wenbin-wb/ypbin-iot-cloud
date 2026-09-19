@@ -1,13 +1,63 @@
-# 部署单元① 网关（M0a 骨架）。
+# 部署单元① 网关（P2：路由 + 鉴权 + 租户上下文注入 + 剥离伪造头 + 静态发现）。
 #
-# 这里只有应用名与端口：路由、鉴权、租户上下文注入、剥离伪造头都在 P2 落地
-# （IOT-CLOUD-SPEC.md §4.1 / §4.4）。端口是 M0a 占位值，P2 起与本地五进程形态对齐。
+# 静态发现：M0a 用固定 URI（不启 Nacos，见 IOT-CLOUD-SPEC.md §4.5）；uri 可用环境变量覆盖。
+# 路由约定与 admin 一致：URL 第一段 = 服务短名，转发前 StripPrefix 剥掉该段。
 server:
   port: 18080
 
 spring:
   application:
     name: ypbin-iot-cloud-gateway
+  cloud:
+    # Spring Cloud 2025.1.x 官方支持 Boot 4.1.x，兼容性检查器元数据滞后会误报，显式禁用（与 admin 一致）
+    compatibility-verifier:
+      enabled: false
+    gateway:
+      server:
+        webflux:
+          routes:
+            - id: business
+              uri: ${IOT_CLOUD_BUSINESS_URI:http://localhost:18081}
+              predicates:
+                - Path=/business/**
+              filters:
+                - StripPrefix=1
+            - id: access
+              uri: ${IOT_CLOUD_ACCESS_URI:http://localhost:18082}
+              predicates:
+                - Path=/access/**
+              filters:
+                - StripPrefix=1
+
+ypbin:
+  gateway:
+    enabled: true
+    # 身份头清洗：客户端自带这些头一律剥掉，由网关注入可信值。
+    # ⚠️ starter 的默认名单**不含** X-Gateway-Signed —— 不显式追加则客户端可自带该头穿透下游的可信来源校验
+    # （IOT-CLOUD-SPEC.md §4.4-2 明确要求）。
+    header-sanitize:
+      enabled: true
+      headers:
+        - X-User-Id
+        - X-User-Name
+        - X-Tenant-Id
+        - X-Dept-Id
+        - X-Roles
+        - X-Gateway-Signed
+    auth:
+      enabled: true
+      # 放行路径：只放健康探针与 API 文档；/actuator/** 其余端点（env/heapdump/shutdown）不得暴露
+      exclude-paths:
+        - /actuator/health
+        - /actuator/health/**
+        - /actuator/info
+        - /business/actuator/health
+      # 与各下游的 trusted-source-token 一致（部署时经环境变量注入；为空表示不签发来源标记）
+      trusted-source-token: ${GATEWAY_SIGN_TOKEN:}
+      trusted-source-header: X-Gateway-Signed
+  internal:
+    # 内部端点凭证（P3 起 business 的 /internal/** 守卫使用）；属密钥，只经环境变量注入
+    token: ${INTERNAL_TOKEN:}
 
 management:
   endpoints:

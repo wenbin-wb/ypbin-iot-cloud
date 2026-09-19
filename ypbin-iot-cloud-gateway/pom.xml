@@ -18,12 +18,13 @@
 
     <dependencies>
         <!--
-          网关后续接 Spring Cloud Gateway（WebFlux 系，2025.1.x 起制品名为 gateway-server-webflux），
-          P0 先只引 WebFlux，避免 P2 再换依赖族。
+          网关支撑走 starter 的 ypbin-starter-cloud-gateway（不重造 GlobalFilter）：它提供
+          鉴权 / 身份头清洗 / 请求 ID / 异常处理，并**传递** spring-cloud-starter-gateway-server-webflux
+          （2025.1.x 起的新制品名），因此不再单独声明 webflux。
         -->
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-webflux</artifactId>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-starter-cloud-gateway</artifactId>
         </dependency>
         <!-- 健康检查端点：M0a 的「能起」按 P5 用 curl /actuator/health 验收 -->
         <dependency>

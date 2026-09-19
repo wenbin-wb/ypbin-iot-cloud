@@ -77,6 +77,12 @@
                 <artifactId>ypbin-starter-web</artifactId>
                 <version>${ypbin-starter.version}</version>
             </dependency>
+            <!-- 网关支撑（GlobalFilter：鉴权/身份头清洗/请求 ID/异常处理；传递 spring-cloud-starter-gateway-server-webflux） -->
+            <dependency>
+                <groupId>cn.ypbin</groupId>
+                <artifactId>ypbin-starter-cloud-gateway</artifactId>
+                <version>${ypbin-starter.version}</version>
+            </dependency>
 
             <!-- ===== 本仓模块（版本统一由 revision 控制）===== -->
             <dependency>
