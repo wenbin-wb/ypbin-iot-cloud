@@ -14,18 +14,27 @@
     <artifactId>ypbin-iot-cloud-access</artifactId>
 
     <name>${project.artifactId}</name>
-    <description>部署单元③ 设备接入（有状态）：M0a 仅可启动骨架，P4 才接 ypbin-iot-starter</description>
+    <description>部署单元③ 设备接入（有状态）：P4 租约与 self-fencing，P4b 接 ypbin-iot-starter 协议栈</description>
 
     <dependencies>
         <!--
-          ⚠️ P0 故意**不**依赖 cn.ypbin:ypbin-iot-bom / 协议模块。
+          ===== P4b：接 iot-starter（协议栈）=====
 
-          iot-starter 尚未发布（0.1.0-SNAPSHOT 未上 Maven Central），现在引入会让干净环境构建失败。
-          P4 接入步骤：
-            ① 在 ypbin-iot-cloud-dependencies 放开 ypbin-iot-bom 的 import（那里有占位说明）；
-            ② 这里按需引协议模块（mqtt / modbus / opcua / tcp）。
-          P0 的 access 只验证「有状态的第三单元能被单独启动与探活」。
+          `ypbin-iot-spring-boot-starter` 提供 `IotLifecycle`（bind/unbind/probe/sessions）与三个宿主 SPI 的装配；
+          `ypbin-iot-protocol-tcp` 提供 TCP 透传适配器（M0a 用它做真建链/真断链的验证——MQTT 需要
+          EMQX 而 M0a 明确不接 EMQX，见 spec §P4 与「M0a 明确不做」）。
+
+          ⚠️ 这两个坐标来自 **BOM import**（`ypbin-iot-cloud-dependencies`），版本不在这里写；
+          而 BOM 本身来自本机 `~/.m2` 的 iot-starter SNAPSHOT（该框架未发布，见其 ROADMAP）。
         -->
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-iot-spring-boot-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>cn.ypbin</groupId>
+            <artifactId>ypbin-iot-protocol-tcp</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>

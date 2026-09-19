@@ -15,6 +15,9 @@
  */
 package cn.ypbin.iotcloud.access.config;
 
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -60,6 +63,54 @@ public class AccessProperties {
      * （见 {@code AccessStartupRunner}）。</p>
      */
     private boolean startupHandshakeEnabled = true;
+
+    /**
+     * 本节点要接入的设备清单（M0a 用配置给出；M0b 换成从台账表读取）。
+     *
+     * <p>租约只回答「本节点该采哪些<b>租户</b>」，设备是租户的下级——M0a 还没有设备表（§12.2 的迁移在 M0b），
+     * 所以这里用配置把「租户 → 设备 → 连接」三件事讲清楚；`TenantLinkManager` 再按租约归属决定
+     * 绑哪些设备、断哪些设备。</p>
+     */
+    private List<DeviceEntry> devices = new ArrayList<>();
+
+    /**
+     * 设备建链超时：显式配置（仓库铁律：远程调用禁止无超时默认客户端）。
+     */
+    private Duration deviceConnectTimeout = Duration.ofSeconds(5);
+
+    /** 设备请求超时：显式配置。 */
+    private Duration deviceRequestTimeout = Duration.ofSeconds(3);
+
+    /**
+     * 一台设备的接入定义（配置形态，M0b 由台账表替代）。
+     *
+     * <p>字段与字段名对齐 iot-starter 的契约（`DeviceSpec` / `ConnectionSpec`），不做改名映射。</p>
+     */
+    @Getter
+    @Setter
+    public static class DeviceEntry {
+
+        /** 所属租户（决定它跟随哪份租约被绑定/断链）。 */
+        private Long tenantId;
+
+        /** 设备标识（全局唯一；断链与观测都用它）。 */
+        private String deviceId;
+
+        /**
+         * 连接标识（同一租户内多台设备可共用一个连接；<b>跨租户共用会被拒绝</b>）。
+         *
+         * <p>为什么跨租户共用要拒绝：TCP 适配器的连接与设备会话是 1:1，撤销任一租约都会关闭那条共享 socket，
+         * 另一个租户会被判「负责」却链路已死且不重连（复核 F1 实测）。要共用连接得先确认协议适配器支持
+         * 一对多会话复用并把撤销语义一起设计好——不是配置层面顺手能开的口子。</p>
+         */
+        private String connectionId;
+
+        /** 端点 URI，例如 {@code tcp://127.0.0.1:15002}（必须带 scheme，由 iot-starter 校验）。 */
+        private String uri;
+
+        /** 轮询间隔（毫秒）；0 表示不主动轮询（M0a 只验证建链/断链）。 */
+        private long pollIntervalMs;
+    }
 
     /**
      * 周期<b>重领</b>间隔（毫秒），默认 15s（= business 的失效扫描周期）。

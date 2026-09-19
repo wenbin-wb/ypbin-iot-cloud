@@ -1,4 +1,9 @@
 # ypbin-iot-cloud access 自动配置登记
-# 本类必须是自动配置：TenantLinkManager 的 @ConditionalOnMissingBean 替换缝依赖
-# 「自动配置晚于用户 bean」这个顺序保证（写成普通 @Configuration 会变成假缝，复核 D8）。
+# 本仓规则：每个 @AutoConfiguration 都必须在这里登记（SRC-04 门禁）。
+#
+# 1) P4b：接 iot-starter 的装配（classpath 有 IotLifecycle 时生效，提供真建链/真断链的 TenantLinkManager）
+cn.ypbin.iotcloud.access.config.AccessIotAutoConfiguration
+# 2) M0a：租约状态机 + 日志版链路实现（作为 iot-starter 缺席时的回退）
+#    必须是自动配置：TenantLinkManager 的 @ConditionalOnMissingBean 替换缝依赖
+#    「自动配置晚于用户 bean」这个顺序保证（写成普通 @Configuration 会变成假缝，复核 D8）。
 cn.ypbin.iotcloud.access.config.AccessLeaseConfiguration

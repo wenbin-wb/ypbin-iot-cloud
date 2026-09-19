@@ -29,6 +29,33 @@ jobs:
           java-version: '21'
           cache: maven
 
+      # P4b 起本仓依赖 cn.ypbin:ypbin-iot-bom（access 接 iot-starter），而该框架**尚未发布到 Central**，
+      # 所以 CI 必须先把它装进本地仓库 —— 否则会在「解析 BOM」这一步失败。
+      # 这也是 iot-starter 自己 ROADMAP 里的决策：「先让 access 用 SNAPSHOT 跑通，再发 0.1.0」。
+      #
+      # ⚠️ 必须克隆到 **workspace 之外**（$RUNNER_TEMP）：放进来会让本仓的
+      # ModulePublishingTest（MTP-02）扫到 iot-starter 自己的非发布模块（它也有 dev-only 形态），
+      # 判定为「仓内存在既不在顶层 modules 也不在 dev-only profile 的 pom」→ 门禁转红。
+      # 那是门禁的正确行为，所以这里改的是 CI 的取源位置，而不是放宽门禁（实测 CI 上就是这样失败的）。
+      # ⚠️ 锁定到具体 SHA，不用 --depth 1 的移动引用：iot-starter 侧是 SNAPSHOT，
+      # 若跟随分支漂移，同一份本仓代码在不同时间会构建出不同结果（供应链可复现性）。
+      # 升级 iot-starter 时必须**显式**改这里的 SHA（有意为之的 bump，而不是被上游悄悄带走）。
+      # 两个代价要说清：① `fetch <sha>` 要求该提交在服务端**仍可达**（上游 force-push / GC 掉它会让本步失败）；
+      # ② 这里只锁住 CI —— 开发者本机的 `~/.m2` 里的 iot SNAPSHOT 没有任何门禁，改了 iot-starter
+      #    却忘了同步本仓会影响本地构建。
+      - name: 检出 iot-starter 到 workspace 之外（P4b 依赖，未发布，需本地安装）
+        env:
+          IOT_STARTER_SHA: c4b28d1024108e1cc8710a305a63a358d7036ce9
+        run: |
+          git init -q "$RUNNER_TEMP/ypbin-iot-starter"
+          git -C "$RUNNER_TEMP/ypbin-iot-starter" remote add origin \
+            https://github.com/wenbin-wb/ypbin-iot-starter
+          git -C "$RUNNER_TEMP/ypbin-iot-starter" fetch -q --depth 1 origin "$IOT_STARTER_SHA"
+          git -C "$RUNNER_TEMP/ypbin-iot-starter" checkout -q FETCH_HEAD
+
+      - name: 安装 iot-starter 到本地仓库（跳过其自带测试：本作业只验证本仓）
+        run: mvn -B -ntp -fae -DskipTests install -f "$RUNNER_TEMP/ypbin-iot-starter/pom.xml"
+
       # 不带任何 -P：dev-only 是 activeByDefault profile，显式激活任一 profile 都会让它失效，
       # 架构约束门禁（含 ModulePublishingTest）与两个非发布模块就不会进反应堆。
       # 这一步同时覆盖 spotless:check（父 pom 把它绑在 process-test-classes）与 JaCoCo 覆盖率门禁。
@@ -51,7 +78,7 @@ jobs:
         run: |
           set -euo pipefail
           count="$(find . -path '*/target/site/jacoco/jacoco.csv' | wc -l)"
-          echo "jacoco.csv 数量 = ${count}（期望 >= 1；M0a 实测为 1，来自 ypbin-iot-cloud-common）"
+          echo "jacoco.csv 数量 = ${count}（期望 >= 1；当前实测为 6：common/api/core/gateway/business/access）"
           if [ "${count}" -lt 1 ]; then
             echo "::error::覆盖率报告缺失（实测 ${count} 个）—— 两种可能：① 前面的步骤失败、测试没跑；② 某个步骤执行了 clean 把 target/site/jacoco 删掉了。归档会传空，因此这里直接失败。"
             exit 1

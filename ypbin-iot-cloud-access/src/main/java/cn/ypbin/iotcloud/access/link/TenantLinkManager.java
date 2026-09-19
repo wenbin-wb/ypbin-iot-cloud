@@ -58,13 +58,20 @@ public interface TenantLinkManager {
     /**
      * 某租户当前是否在采集。
      *
+     * <p>⚠️ <b>这不等价于「链路真的活着」</b>：设备探测失败、或该租户还没配设备时，本方法返回 true
+     * 而实际链路数为 0。链路是否真的活着请看 {@code iotcloud.access.link.bound.devices}（绑定设备数 gauge）
+     * 或 iot-starter 的会话数；把「负责」当「在采」会在设备侧故障时产生可观测失真（复核 F3）。</p>
+     *
      * @param tenantId 租户 ID
-     * @return 在采集返回 {@code true}
+     * @return 本节点负责该租户时返回 {@code true}（不代表链路已建立）
      */
     boolean isCollecting(Long tenantId);
 
     /**
      * 当前正在采集的租户集合（只读快照）。
+     *
+     * <p>与 {@link #isCollecting(Long)} 同一口径：包含「负责但零链路」的租户
+     * （探测失败/未配设备）。真实链路数看 {@code iotcloud.access.link.bound.devices}。</p>
      *
      * @return 租户 ID 集合，永不为 {@code null}
      */
