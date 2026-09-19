@@ -111,6 +111,28 @@ public class InternalPathBlockFilter implements WebFilter, Ordered {
      * <p>因此这里依次做：<b>去掉矩阵参数 → 丢弃空段与 {@code .} → 解析 {@code ..}（弹出上一段）</b>，
      * 再只看前两段是否等于 {@code internal}（大小写不敏感：路由器大小写敏感，这里宁可多拦）。</p>
      *
+     * <p><b>显式约定</b>：本判据把 {@code internal} 视为<b>保留段名</b>——只允许出现在第 1 或第 2 段，
+     * 一旦出现即拦（因此 {@code /business/tenants/internal/devices} 这类「internal 落在第 3 段」的
+     * 业务路径是放行的）。将来若有服务的真实业务路径把 {@code internal} 放在第 1、2 段，会被此处误拦，
+     * 届时请改路由约定而不是放开这里。</p>
+     *
+     * <p>⚠️ <b>两条「容器假设」（独立复核实测：本栈当前不可达，但换栈/换前置组件就可能变成绕过）</b>：</p>
+     * <ul>
+     *   <li><b>反斜杠当分隔符</b>：{@link #isInternalApiPath(String)} 只看 {@code /} 分段，
+     *       而 Tomcat 默认 {@code allowBackslash=true}、部分反向代理也会把 {@code \} 当分隔符。
+     *       本栈里 {@code /business\internal\...} 被 Netty 直接 400（过滤器都没跑）故不可达；
+     *       若将来网关前面挂了会归一化反斜杠的组件，整串会被当成一个普通段而放行；</li>
+     *   <li><b>多重解码 / 编码斜杠</b>：此处用的是解码一次的 {@code URI.getPath()}，
+     *       而下游容器可能再解码一次。本栈 {@code %2F} 被 Tomcat 拒（默认 {@code ALLOW_ENCODED_SLASH=false}）；
+     *       若下游允许编码斜杠或换成二次解码的组件，会出现「过滤器看到 {@code internal%2Flease}、
+     *       下游看到 {@code internal/lease}」的分歧。</li>
+     * </ul>
+     * <p>换部署形态（前置 WAF/反代、换容器、放开编码斜杠）时必须重新评估这两条——
+     * 把「网关看不到内部路径」当成结构性保证，而不是靠这一层字符串判断。</p>
+     *
+     * <p>另注：被 Netty 在编解码层拒掉的畸形请求返回的是 HTML {@code 400 Bad Request}，
+     * <b>不走</b>统一 {@code R} 信封（包不进去）。行为是 fail-closed，不影响安全。</p>
+     *
      * @param path 请求路径
      * @return 是否应拦
      */
