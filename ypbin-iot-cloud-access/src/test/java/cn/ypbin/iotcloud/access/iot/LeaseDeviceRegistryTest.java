@@ -26,6 +26,8 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -80,6 +82,49 @@ class LeaseDeviceRegistryTest {
         LeaseDeviceRegistry registry = new LeaseDeviceRegistry();
 
         assertThat(registry.removeDevices(List.of(device("ghost")))).isZero();
+        assertThat(registry.loadAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("F5：并发增删时 revision 唯一且按送达顺序递增（框架按 revision 丢旧变更，乱序=静默忽略）")
+    void concurrentChangesMustKeepMonotonicRevisions() throws InterruptedException {
+        LeaseDeviceRegistry registry = new LeaseDeviceRegistry();
+        List<DeviceChange> delivered = new CopyOnWriteArrayList<>();
+        registry.addChangeListener(delivered::add);
+        int threads = 4;
+        int perThread = 25;
+        CountDownLatch start = new CountDownLatch(1);
+        List<Thread> workers = new ArrayList<>();
+        for (int t = 0; t < threads; t++) {
+            int index = t;
+            Thread worker = new Thread(() -> {
+                try {
+                    start.await();
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                for (int i = 0; i < perThread; i++) {
+                    String deviceId = "dev-" + index + "-" + i;
+                    registry.addDevices(List.of(device(deviceId)));
+                    registry.removeDevices(List.of(device(deviceId)));
+                }
+            }, "registry-worker-" + t);
+            worker.start();
+            workers.add(worker);
+        }
+        start.countDown();
+        for (Thread worker : workers) {
+            worker.join(10_000);
+        }
+
+        assertThat(delivered).hasSize(threads * perThread * 2);
+        // 送达顺序里的 revision 必须严格递增（实现把「定序 + 通知」都放在同一把锁里）
+        long previous = 0L;
+        for (DeviceChange change : delivered) {
+            assertThat(change.revision()).isGreaterThan(previous);
+            previous = change.revision();
+        }
         assertThat(registry.loadAll()).isEmpty();
     }
 

@@ -78,16 +78,21 @@ public class LeaseDeviceRegistry implements DeviceRegistry {
      * @return 本次真正新增的设备数
      */
     public int addDevices(List<DeviceSpec> devices) {
-        List<DeviceSpec> added = new ArrayList<>();
+        List<DeviceChange> changes = new ArrayList<>();
         synchronized (bound) {
             for (DeviceSpec device : devices) {
                 if (bound.putIfAbsent(device.deviceId(), device) == null) {
-                    added.add(device);
+                    changes.add(new DeviceChange(ChangeType.ADD, device, revision.incrementAndGet()));
                 }
             }
+            // F5（复核指出）：revision **与通知**都要在锁内——框架按 revision 去重丢弃旧变更
+            // （`revision <= applied` 直接忽略），所以同一设备的变更必须按 revision 顺序送达；
+            // 只在锁内定序、锁外通知，会让两个线程的同一设备变更乱序到达而后者被丢弃。
+            // 代价：监听器（框架的 bind/unbind）在持锁期间执行——它只做会话创建/关闭的调度，
+            // 属于有界短操作；换来的是「该断的链一定断」这个硬保证，值得。
+            changes.forEach(this::notifyListeners);
         }
-        added.forEach(device -> publish(ChangeType.ADD, device));
-        return added.size();
+        return changes.size();
     }
 
     /**
@@ -97,16 +102,16 @@ public class LeaseDeviceRegistry implements DeviceRegistry {
      * @return 本次真正移除的设备数
      */
     public int removeDevices(List<DeviceSpec> devices) {
-        List<DeviceSpec> removed = new ArrayList<>();
+        List<DeviceChange> changes = new ArrayList<>();
         synchronized (bound) {
             for (DeviceSpec device : devices) {
                 if (bound.remove(device.deviceId()) != null) {
-                    removed.add(device);
+                    changes.add(new DeviceChange(ChangeType.REMOVE, device, revision.incrementAndGet()));
                 }
             }
+            changes.forEach(this::notifyListeners);
         }
-        removed.forEach(device -> publish(ChangeType.REMOVE, device));
-        return removed.size();
+        return changes.size();
     }
 
     /** 当前登记的设备标识（只读快照）。 */
@@ -116,16 +121,14 @@ public class LeaseDeviceRegistry implements DeviceRegistry {
         }
     }
 
-    private void publish(ChangeType type, DeviceSpec device) {
-        long next = revision.incrementAndGet();
-        DeviceChange change = new DeviceChange(type, device, next);
+    private void notifyListeners(DeviceChange change) {
         for (Consumer<DeviceChange> listener : listeners) {
             try {
                 listener.accept(change);
             } catch (RuntimeException ex) {
                 // 不静默：变更通道是绑定/解绑的唯一路径，吞掉它会让「该断的链没断」
                 log.error("设备变更通知失败（type={} deviceId={}）：绑定/解绑可能未生效",
-                    type, LogSanitizer.sanitize(device.deviceId()), ex);
+                    change.type(), LogSanitizer.sanitize(change.device().deviceId()), ex);
             }
         }
     }

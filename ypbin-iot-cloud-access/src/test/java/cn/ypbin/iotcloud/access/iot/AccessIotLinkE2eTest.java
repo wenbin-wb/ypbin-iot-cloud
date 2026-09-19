@@ -28,6 +28,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -60,6 +61,9 @@ class AccessIotLinkE2eTest {
 
     private static final long TENANT = 11L;
 
+    /** 第二个租户：用来证明「撤销一个租户不会误伤另一个」（F1 的 socket 级证明）。 */
+    private static final long TENANT_B = 22L;
+
     /** 真实 TCP 服务端（动态端口）：只接受连接并保持，模拟一台透传设备。 */
     private static final ServerSocket DEVICE_SERVER;
 
@@ -91,6 +95,11 @@ class AccessIotLinkE2eTest {
         registry.add("ypbin.access.devices[0].device-id", () -> "dev-e2e-11");
         registry.add("ypbin.access.devices[0].connection-id", () -> "conn-e2e-11");
         registry.add("ypbin.access.devices[0].uri", () -> "tcp://127.0.0.1:" + DEVICE_SERVER.getLocalPort());
+        // 租户 B 自己的连接（连接不能跨租户共用——那条规则有专门用例，这里配成独立连接）
+        registry.add("ypbin.access.devices[1].tenant-id", () -> TENANT_B);
+        registry.add("ypbin.access.devices[1].device-id", () -> "dev-e2e-22");
+        registry.add("ypbin.access.devices[1].connection-id", () -> "conn-e2e-22");
+        registry.add("ypbin.access.devices[1].uri", () -> "tcp://127.0.0.1:" + DEVICE_SERVER.getLocalPort());
     }
 
     @Autowired
@@ -107,6 +116,20 @@ class AccessIotLinkE2eTest {
     void iotStarterOnClasspathShouldReplaceLinkManager() {
         assertThat(linkManager).isInstanceOf(IotTenantLinkManager.class);
         assertThat(dataSink).isInstanceOf(LoggingDataSink.class);
+    }
+
+    /**
+     * 每个用例开始前清场：把上一轮可能留下的绑定全部 fence 掉并清空服务端连接记录。
+     *
+     * <p>为什么需要它：用例之间共享同一个 Spring 上下文与同一个模拟设备，而「跨租户」用例会刻意留下
+     * 租户 B 的绑定——若不清场，紧随其后的 EOF 用例会因为「还有别的连接活着」而偶发失败（顺序依赖）。
+     * 让每个用例从确定状态开始，比依赖 JUnit 的执行顺序可靠。</p>
+     */
+    @BeforeEach
+    void resetLinkState() {
+        linkManager.fenceAll("e2e：用例开始前清场");
+        await().atMost(Duration.ofSeconds(15)).until(() -> lifecycle.sessionCount() == 0);
+        ACCEPTED.clear();
     }
 
     /** 收尾：关掉模拟设备与它接受过的连接（静态资源不关会跨用例泄漏端口与线程）。 */
@@ -132,7 +155,8 @@ class AccessIotLinkE2eTest {
 
         linkManager.startCollecting(TENANT);
 
-        // 真建链：框架侧会话数 0 → 1（探测也真的连过一次，见 ACCEPTED）
+        // 真建链：框架侧会话数 0 → 1；ACCEPTED 只说明「服务端被连过」（探测或绑定都可能），
+        // 绑定成功的硬证据是 sessionCount（以及下面 fence 后的 EOF）。
         await().atMost(Duration.ofSeconds(15)).until(() -> lifecycle.sessionCount() == 1);
         await().atMost(Duration.ofSeconds(5)).until(() -> !ACCEPTED.isEmpty());
 
@@ -141,5 +165,52 @@ class AccessIotLinkE2eTest {
         // 真断链：框架侧会话数回到 0
         await().atMost(Duration.ofSeconds(15)).until(() -> lifecycle.sessionCount() == 0);
         assertThat(linkManager.isCollecting(TENANT)).isFalse();
+    }
+
+    @Test
+    @DisplayName("fence 之后服务端侧读到 EOF：OS 层确认连接真的关了（不只是会话对象没了）")
+    void fenceShouldCloseTheSocketAtOsLevel() throws IOException {
+        linkManager.startCollecting(TENANT);
+        await().atMost(Duration.ofSeconds(15)).until(() -> lifecycle.sessionCount() == 1);
+        await().atMost(Duration.ofSeconds(5)).until(() -> !ACCEPTED.isEmpty());
+
+        linkManager.fence(TENANT, "e2e：租约被撤销");
+        await().atMost(Duration.ofSeconds(15)).until(() -> lifecycle.sessionCount() == 0);
+        await().atMost(Duration.ofSeconds(10)).until(() -> allAcceptedSocketsClosed());
+    }
+
+    @Test
+    @DisplayName("撤销一个租户不会误伤另一个租户的链路（F1：跨租户共用连接的危害在独立连接下不存在）")
+    void fenceShouldNotKillAnotherTenantLink() {
+        linkManager.startCollecting(TENANT);
+        linkManager.startCollecting(TENANT_B);
+        await().atMost(Duration.ofSeconds(20)).until(() -> lifecycle.sessionCount() == 2);
+
+        linkManager.fence(TENANT, "e2e：只撤销租户 11");
+
+        await().atMost(Duration.ofSeconds(15)).until(() -> lifecycle.sessionCount() == 1);
+        assertThat(linkManager.isCollecting(TENANT)).isFalse();
+        assertThat(linkManager.isCollecting(TENANT_B)).isTrue();
+        assertThat(lifecycle.sessions()).containsKey("dev-e2e-22");
+        assertThat(lifecycle.sessions()).doesNotContainKey("dev-e2e-11");
+    }
+
+    /** 服务端侧所有连接都读到 EOF（-1）即视为已关闭。 */
+    private boolean allAcceptedSocketsClosed() {
+        if (ACCEPTED.isEmpty()) {
+            return false;
+        }
+        for (Socket socket : ACCEPTED) {
+            try {
+                socket.setSoTimeout(1_000);
+                if (socket.getInputStream().read() != -1) {
+                    return false;
+                }
+            } catch (IOException ex) {
+                // 连接被重置等也算「已断开」
+                return true;
+            }
+        }
+        return true;
     }
 }

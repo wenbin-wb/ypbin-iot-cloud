@@ -58,7 +58,9 @@ public class LoggingDataSink implements DataSink {
 
     @Override
     public String name() {
-        return "access-m0a-logging";
+        // 名字里不带 M0a：P4b 接上协议栈后它仍在用（只是还不具备协议语义），
+        // 名字是运维在 iot-starter 日志里定位出口的键，应当稳定。
+        return "access-logging";
     }
 
     @Override

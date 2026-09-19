@@ -23,6 +23,7 @@ import cn.ypbin.iotcloud.access.config.AccessProperties;
 import cn.ypbin.iotcloud.access.link.TenantLinkManager;
 import cn.ypbin.starter.core.util.LogSanitizer;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.ArrayList;
 import java.util.List;
@@ -88,6 +89,11 @@ public class IotTenantLinkManager implements TenantLinkManager {
             .description("真正绑定（建链）的设备次数").register(meterRegistry);
         this.fenced = Counter.builder(METRIC_PREFIX + "link.fenced")
             .description("因租约失效/撤销而解绑（断链）的设备次数").register(meterRegistry);
+        // F3（复核指出的可观测失真）：`collecting` 只说明「本节点负责哪些租户」，不等于链路真的活着
+        // （设备探测失败或没配设备时为「负责但零链路」）。真实链路数看这个 gauge。
+        Gauge.builder(METRIC_PREFIX + "link.bound.devices", registry,
+                manager -> manager.boundDeviceIds().size())
+            .description("当前真正绑定（会话存活）的设备数").register(meterRegistry);
     }
 
     @Override
@@ -104,6 +110,14 @@ public class IotTenantLinkManager implements TenantLinkManager {
             if (probe(device)) {
                 reachable.add(device);
             }
+        }
+        // F2（复核用确定性单测证明的真实缺陷）：探测是要走网络的，期间可能已经发生 fencing
+        // （租约被撤销/过期、或节点级 fencing）。此时如果照样登记，就会把「已停采的租户」的设备重新绑上，
+        // 而 holdings 里已经没有它 ⇒ 之后再也不会有人来 fence ⇒ **链路永久泄漏、self-fencing 被破坏**。
+        if (!collecting.contains(tenantId)) {
+            log.warn("租户在设备探测期间已被停采，放弃绑定（避免泄漏不会被回收的链路）：tenantId={} 设备数={}",
+                LogSanitizer.sanitize(tenantId), reachable.size());
+            return;
         }
         int added = registry.addDevices(reachable);
         if (added > 0) {
@@ -163,7 +177,7 @@ public class IotTenantLinkManager implements TenantLinkManager {
                 .get(properties.getDeviceConnectTimeout().toMillis() + PROBE_GRACE_MS, TimeUnit.MILLISECONDS);
             if (!result.reachable()) {
                 log.warn("设备探测不可达，拒绝绑定：deviceId={} endpoint={} 原因={}",
-                    LogSanitizer.sanitize(device.deviceId()), spec.get().endpoint(),
+                    LogSanitizer.sanitize(device.deviceId()), LogSanitizer.sanitize(spec.get().endpoint().uri()),
                     LogSanitizer.sanitize(result.failureReason()));
                 return false;
             }

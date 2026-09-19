@@ -39,10 +39,18 @@ jobs:
 
       # 与 ci.yml 同一理由：P4b 起依赖未发布的 cn.ypbin:ypbin-iot-bom，构建前必须先本地安装 iot-starter。
       # 同样必须放在 workspace 之外，否则会踩本仓 ModulePublishingTest（MTP-02），见 ci.yml 的注释。
+      # ⚠️ 锁定到具体 SHA，不用 --depth 1 的移动引用：iot-starter 侧是 SNAPSHOT，
+      # 若跟随分支漂移，同一份本仓代码在不同时间会构建出不同结果（供应链可复现性）。
+      # 升级 iot-starter 时必须**显式**改这里的 SHA（有意为之的 bump，而不是被上游悄悄带走）。
       - name: 检出 iot-starter 到 workspace 之外（P4b 依赖，未发布，需本地安装）
+        env:
+          IOT_STARTER_SHA: c4b28d1024108e1cc8710a305a63a358d7036ce9
         run: |
-          git clone --depth 1 https://github.com/wenbin-wb/ypbin-iot-starter \
-            "$RUNNER_TEMP/ypbin-iot-starter"
+          git init -q "$RUNNER_TEMP/ypbin-iot-starter"
+          git -C "$RUNNER_TEMP/ypbin-iot-starter" remote add origin \
+            https://github.com/wenbin-wb/ypbin-iot-starter
+          git -C "$RUNNER_TEMP/ypbin-iot-starter" fetch -q --depth 1 origin "$IOT_STARTER_SHA"
+          git -C "$RUNNER_TEMP/ypbin-iot-starter" checkout -q FETCH_HEAD
 
       - name: 安装 iot-starter 到本地仓库
         run: mvn -B -ntp -fae -DskipTests install -f "$RUNNER_TEMP/ypbin-iot-starter/pom.xml"

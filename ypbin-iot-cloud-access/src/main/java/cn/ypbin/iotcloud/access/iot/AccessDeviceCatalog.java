@@ -23,9 +23,11 @@ import cn.ypbin.iotcloud.access.config.AccessProperties;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
 import org.springframework.util.StringUtils;
 
@@ -58,6 +60,8 @@ public class AccessDeviceCatalog {
     public AccessDeviceCatalog(AccessProperties properties) {
         Map<Long, List<DeviceSpec>> byTenant = new TreeMap<>();
         Map<String, ConnectionSpec> specs = new LinkedHashMap<>();
+        Map<String, Long> connectionOwners = new LinkedHashMap<>();
+        Set<String> deviceIds = new LinkedHashSet<>();
         ProtocolCode protocol = ProtocolCode.of(PROTOCOL_TCP);
         for (AccessProperties.DeviceEntry entry : properties.getDevices()) {
             requireText(entry.getDeviceId(), "device-id");
@@ -67,18 +71,41 @@ public class AccessDeviceCatalog {
                 throw new IllegalArgumentException("设备 " + entry.getDeviceId() + " 缺少 tenant-id："
                     + "租约按租户授予，没有租户就无从判断它该不该被绑定");
             }
+            if (entry.getPollIntervalMs() < 0) {
+                // 不静默 clamp：负数多半是配置写错（例如把单位当成秒），静默变 0 会掩盖它
+                throw new IllegalArgumentException("设备 " + entry.getDeviceId() + " 的 poll-interval-ms 为负（"
+                    + entry.getPollIntervalMs() + "）：0 表示不轮询，负数通常是配置写错");
+            }
             ConnectionSpec connection = new ConnectionSpec(entry.getConnectionId(), protocol,
                 Endpoint.of(entry.getUri()), properties.getDeviceConnectTimeout(),
                 properties.getDeviceRequestTimeout(), null, null, Map.of());
+            if (!deviceIds.add(entry.getDeviceId())) {
+                throw new IllegalArgumentException("device-id 重复：" + entry.getDeviceId()
+                    + "：deviceId 是断链与观测的键，重复会让「断一台」变成「断一串」");
+            }
             ConnectionSpec previous = specs.putIfAbsent(entry.getConnectionId(), connection);
-            if (previous != null && !previous.endpoint().equals(connection.endpoint())) {
-                throw new IllegalArgumentException("连接 " + entry.getConnectionId()
-                    + " 被两台设备配成了不同端点（" + previous.endpoint() + " vs " + connection.endpoint()
-                    + "）：一条连接只能有一个端点");
+            if (previous != null) {
+                if (!previous.endpoint().equals(connection.endpoint())) {
+                    throw new IllegalArgumentException("连接 " + entry.getConnectionId()
+                        + " 被两台设备配成了不同端点（" + previous.endpoint() + " vs " + connection.endpoint()
+                        + "）：一条连接只能有一个端点");
+                }
+                // F1（复核实测的真实危害）：跨租户共用一条连接时，撤销租户 A 会连带关掉租户 B 的 socket，
+                // 而 B 仍被判为「在采」且不会重连（TCP 适配器是 1:1，见 iot-starter 的 TcpAdapter）。
+                // 所以 M0a 直接拒绝这种配置，而不是留一条「看起来能省连接」的坑。
+                Long firstTenant = connectionOwners.get(entry.getConnectionId());
+                if (!firstTenant.equals(entry.getTenantId())) {
+                    throw new IllegalArgumentException("连接 " + entry.getConnectionId() + " 被多个租户共用（tenant "
+                        + firstTenant + " 与 " + entry.getTenantId() + "）：撤销一个租户的租约会连带关闭"
+                        + "另一个租户的共享 socket，而后者不会自动重连（TCP 连接是 1:1）。"
+                        + "请为每个租户配置各自的 connection-id");
+                }
+            } else {
+                connectionOwners.put(entry.getConnectionId(), entry.getTenantId());
             }
             byTenant.computeIfAbsent(entry.getTenantId(), ignored -> new ArrayList<>()).add(
                 new DeviceSpec(entry.getDeviceId(), entry.getDeviceId(), protocol, entry.getConnectionId(),
-                    "", Duration.ofMillis(Math.max(0L, entry.getPollIntervalMs())), Map.of()));
+                    "", Duration.ofMillis(entry.getPollIntervalMs()), Map.of()));
         }
         this.devicesByTenant = Map.copyOf(byTenant);
         this.connections = Map.copyOf(specs);

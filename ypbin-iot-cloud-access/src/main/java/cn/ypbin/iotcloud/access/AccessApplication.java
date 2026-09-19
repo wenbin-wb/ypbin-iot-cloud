@@ -27,8 +27,9 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * 部署单元③ 设备接入的启动类（有状态）。
  *
  * <p><b>P4 落地了租约客户端与 self-fencing</b>：注册 → 领取 → 周期续约（默认 10s）→ 本地过期自检，
- * 并把「该停采」变成真的停采（{@code TenantLinkManager}）。M0a 仍<b>不接协议栈</b>——
- * {@code ypbin-iot-bom} 尚未发布，所以链路管理现在只做状态标记与日志，
+ * 并把「该停采」变成真的停采（{@code TenantLinkManager}）。**P4b 起接上协议栈**：
+ * classpath 有 iot-starter 时由 {@code AccessIotAutoConfiguration} 提供真建链/真断链实现
+ * （{@code ypbin-iot-bom} 由本地 SNAPSHOT 提供），没有时回退到 M0a 的日志实现——那时链路管理只做状态标记与日志，
  * 但 spec §3.1① 要求的 self-fencing 判定语义已经完整且被用例钉住。</p>
  *
  * <p>{@code @EnableFeignClients} 只为 {@link ILeaseClient}；服务发现在 M0a 用 Spring Cloud 的

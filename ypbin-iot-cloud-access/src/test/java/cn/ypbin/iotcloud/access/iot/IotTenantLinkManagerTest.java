@@ -29,6 +29,8 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -109,7 +111,7 @@ class IotTenantLinkManagerTest {
     }
 
     @Test
-    @DisplayName("撤销一个租户：只解绑它的设备，别的租户不受影响（真断链的边界）")
+    @DisplayName("撤销一个租户：只解绑它的设备（注册表层面；socket 级的跨租户证明在 AccessIotLinkE2eTest）")
     void fenceShouldOnlyUnbindThatTenant() {
         reachable(true);
         manager.startCollecting(11L);
@@ -138,6 +140,44 @@ class IotTenantLinkManagerTest {
     }
 
     @Test
+    @DisplayName("F3：bound.devices gauge 反映真实绑定数（`collecting` 只说「负责」，链路数看它）")
+    void boundDevicesGaugeShouldReflectRealLinks() {
+        reachable(true);
+
+        manager.startCollecting(11L);
+        assertThat(meterRegistry.get("iotcloud.access.link.bound.devices").gauge().value()).isEqualTo(2.0d);
+
+        manager.fence(11L, "撤销");
+        assertThat(meterRegistry.get("iotcloud.access.link.bound.devices").gauge().value()).isZero();
+    }
+
+    @Test
+    @DisplayName("F2：探测期间租户被停采 → 探测通过也不得再绑定（否则链路永久泄漏、self-fencing 被破坏）")
+    void fenceDuringProbeMustWin() throws Exception {
+        CompletableFuture<ProbeResult> probeGate = new CompletableFuture<>();
+        when(lifecycle.probe(any())).thenReturn(probeGate);
+        CountDownLatch probeStarted = new CountDownLatch(1);
+        when(lifecycle.probe(any())).thenAnswer(invocation -> {
+            probeStarted.countDown();
+            return probeGate;
+        });
+
+        Thread collector = new Thread(() -> manager.startCollecting(11L), "test-collector");
+        collector.start();
+        assertThat(probeStarted.await(5, TimeUnit.SECONDS)).isTrue();
+
+        // 探测还在飞行时，租约被撤销（fence）——这是复核实测到的真实交错窗口
+        manager.fence(11L, "探测期间的撤销");
+
+        // 探测此刻才返回「可达」：实现必须重判 collecting，不能把设备绑上去
+        probeGate.complete(reachable());
+        collector.join(5_000);
+
+        assertThat(registry.boundDeviceIds()).isEmpty();
+        assertThat(manager.isCollecting(11L)).isFalse();
+    }
+
+    @Test
     @DisplayName("重复开始采集同一租户是幂等的（不重复登记、不重复计数）")
     void startCollectingShouldBeIdempotent() {
         reachable(true);
@@ -150,11 +190,19 @@ class IotTenantLinkManagerTest {
     }
 
     private void reachable(boolean value) {
+        when(lifecycle.probe(any())).thenReturn(CompletableFuture.completedFuture(probeResult(value)));
+    }
+
+    private ProbeResult reachable() {
+        return probeResult(true);
+    }
+
+    private ProbeResult probeResult(boolean value) {
         // 十个参数：code/name/vendor/stackVersion/transport/capabilities/extensions/min/max/attributes
         ProtocolDescriptor descriptor = new ProtocolDescriptor(TCP, "TCP", null, null, null, null, null,
             null, null, null);
-        when(lifecycle.probe(any())).thenReturn(CompletableFuture.completedFuture(new ProbeResult(value,
-            descriptor, null, Map.of(), value ? null : "connection refused", null, Duration.ofMillis(5))));
+        return new ProbeResult(value, descriptor, null, Map.of(), value ? null : "connection refused", null,
+            Duration.ofMillis(5));
     }
 
     private AccessProperties configured() {

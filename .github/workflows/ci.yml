@@ -37,10 +37,18 @@ jobs:
       # ModulePublishingTest（MTP-02）扫到 iot-starter 自己的非发布模块（它也有 dev-only 形态），
       # 判定为「仓内存在既不在顶层 modules 也不在 dev-only profile 的 pom」→ 门禁转红。
       # 那是门禁的正确行为，所以这里改的是 CI 的取源位置，而不是放宽门禁（实测 CI 上就是这样失败的）。
+      # ⚠️ 锁定到具体 SHA，不用 --depth 1 的移动引用：iot-starter 侧是 SNAPSHOT，
+      # 若跟随分支漂移，同一份本仓代码在不同时间会构建出不同结果（供应链可复现性）。
+      # 升级 iot-starter 时必须**显式**改这里的 SHA（有意为之的 bump，而不是被上游悄悄带走）。
       - name: 检出 iot-starter 到 workspace 之外（P4b 依赖，未发布，需本地安装）
+        env:
+          IOT_STARTER_SHA: c4b28d1024108e1cc8710a305a63a358d7036ce9
         run: |
-          git clone --depth 1 https://github.com/wenbin-wb/ypbin-iot-starter \
-            "$RUNNER_TEMP/ypbin-iot-starter"
+          git init -q "$RUNNER_TEMP/ypbin-iot-starter"
+          git -C "$RUNNER_TEMP/ypbin-iot-starter" remote add origin \
+            https://github.com/wenbin-wb/ypbin-iot-starter
+          git -C "$RUNNER_TEMP/ypbin-iot-starter" fetch -q --depth 1 origin "$IOT_STARTER_SHA"
+          git -C "$RUNNER_TEMP/ypbin-iot-starter" checkout -q FETCH_HEAD
 
       - name: 安装 iot-starter 到本地仓库（跳过其自带测试：本作业只验证本仓）
         run: mvn -B -ntp -fae -DskipTests install -f "$RUNNER_TEMP/ypbin-iot-starter/pom.xml"
@@ -67,7 +75,7 @@ jobs:
         run: |
           set -euo pipefail
           count="$(find . -path '*/target/site/jacoco/jacoco.csv' | wc -l)"
-          echo "jacoco.csv 数量 = ${count}（期望 >= 1；M0a 实测为 1，来自 ypbin-iot-cloud-common）"
+          echo "jacoco.csv 数量 = ${count}（期望 >= 1；当前实测为 6：common/api/core/gateway/business/access）"
           if [ "${count}" -lt 1 ]; then
             echo "::error::覆盖率报告缺失（实测 ${count} 个）—— 两种可能：① 前面的步骤失败、测试没跑；② 某个步骤执行了 clean 把 target/site/jacoco 删掉了。归档会传空，因此这里直接失败。"
             exit 1

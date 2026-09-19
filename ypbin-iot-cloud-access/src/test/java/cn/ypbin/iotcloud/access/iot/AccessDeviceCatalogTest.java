@@ -88,6 +88,56 @@ class AccessDeviceCatalogTest {
     }
 
     @Test
+    @DisplayName("F1：跨租户共用一条连接 → 报错（撤销一个租户会连带关掉另一个的 socket，且后者不重连）")
+    void shouldRejectConnectionSharedAcrossTenants() {
+        AccessProperties properties = configured();
+        properties.getDevices().add(entry(11L, "dev-a", "conn-shared", "tcp://127.0.0.1:15002"));
+        properties.getDevices().add(entry(22L, "dev-b", "conn-shared", "tcp://127.0.0.1:15002"));
+
+        assertThatThrownBy(() -> new AccessDeviceCatalog(properties))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("被多个租户共用");
+    }
+
+    @Test
+    @DisplayName("F4：device-id 重复 → 报错（deviceId 是断链与观测的键，重复会「断一台变断一串」）")
+    void shouldRejectDuplicateDeviceId() {
+        AccessProperties properties = configured();
+        properties.getDevices().add(entry(11L, "dev-dup", "conn-a", "tcp://127.0.0.1:15002"));
+        properties.getDevices().add(entry(22L, "dev-dup", "conn-b", "tcp://127.0.0.1:15003"));
+
+        assertThatThrownBy(() -> new AccessDeviceCatalog(properties))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("device-id 重复");
+    }
+
+    @Test
+    @DisplayName("F8：poll-interval-ms 为负 → 报错（不静默 clamp 成 0）")
+    void shouldRejectNegativePollInterval() {
+        AccessProperties properties = configured();
+        AccessProperties.DeviceEntry entry = entry(11L, "dev-neg", "conn-s", "tcp://127.0.0.1:15002");
+        entry.setPollIntervalMs(-1L);
+        properties.getDevices().add(entry);
+
+        assertThatThrownBy(() -> new AccessDeviceCatalog(properties))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("poll-interval-ms 为负");
+    }
+
+    @Test
+    @DisplayName("同一租户共用一条连接是允许的（同租户内撤销是一起撤销，不存在连带伤害）")
+    void sameTenantMayShareConnection() {
+        AccessProperties properties = configured();
+        properties.getDevices().add(entry(11L, "dev-x", "conn-t11", "tcp://127.0.0.1:15002"));
+        properties.getDevices().add(entry(11L, "dev-y", "conn-t11", "tcp://127.0.0.1:15002"));
+
+        AccessDeviceCatalog catalog = new AccessDeviceCatalog(properties);
+
+        assertThat(catalog.devicesOf(11L)).hasSize(2);
+        assertThat(catalog.connectionSpec("conn-t11")).isPresent();
+    }
+
+    @Test
     @DisplayName("空配置：目录为空（链路管理会记录「无从采集」而不是假装在采）")
     void emptyConfigurationShouldBeEmptyCatalog() {
         assertThat(new AccessDeviceCatalog(configured()).isEmpty()).isTrue();

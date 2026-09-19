@@ -18,8 +18,10 @@ package cn.ypbin.iotcloud.access.config;
 import cn.ypbin.iot.core.spi.ConnectionSpecProvider;
 import cn.ypbin.iot.core.spi.DataSink;
 import cn.ypbin.iot.spring.autoconfigure.IotLifecycle;
+import cn.ypbin.iot.spring.autoconfigure.IotProperties;
 import cn.ypbin.iotcloud.access.iot.AccessDeviceCatalog;
 import cn.ypbin.iotcloud.access.iot.ConfigConnectionSpecProvider;
+import cn.ypbin.iotcloud.access.iot.IotDeviceBootstrapGuard;
 import cn.ypbin.iotcloud.access.iot.IotTenantLinkManager;
 import cn.ypbin.iotcloud.access.iot.LeaseDeviceRegistry;
 import cn.ypbin.iotcloud.access.iot.LoggingDataSink;
@@ -96,6 +98,18 @@ public class AccessIotAutoConfiguration {
     @ConditionalOnMissingBean
     public DataSink loggingDataSink(MeterRegistry meterRegistry) {
         return new LoggingDataSink(meterRegistry);
+    }
+
+    /**
+     * 启动自检：拒绝「引入了 iot-starter 却关掉设备引导」（那会让断链静默失效）。
+     *
+     * @param properties iot-starter 配置
+     * @return 自检器
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public IotDeviceBootstrapGuard iotDeviceBootstrapGuard(IotProperties properties) {
+        return new IotDeviceBootstrapGuard(properties);
     }
 
     /**

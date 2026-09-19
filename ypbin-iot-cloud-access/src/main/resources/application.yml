@@ -1,7 +1,7 @@
-# 部署单元③ 设备接入（有状态单元）。P4：租约领取/续约 + self-fencing 落地。
+# 部署单元③ 设备接入（有状态单元）。P4：租约领取/续约 + self-fencing 落地；P4b：接协议栈（真建链/真断链）。
 #
-# M0a 仍不接协议栈（ypbin-iot-bom 未发布）、不接 EMQX、不接数据库：
-# 链路管理现在只做「谁在采/谁必须停」的状态标记与日志，判定语义（spec §3.1①）已完整。
+# 已接协议栈（iot-starter + TCP 适配器，见下方 ypbin.iot 与 ypbin.access.devices）；
+# 仍不接 EMQX（M0a 明确不做）、不接数据库（M0b 才迁台账表）。
 server:
   port: 18082
 

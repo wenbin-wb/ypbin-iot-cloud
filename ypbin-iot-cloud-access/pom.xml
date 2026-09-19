@@ -14,7 +14,7 @@
     <artifactId>ypbin-iot-cloud-access</artifactId>
 
     <name>${project.artifactId}</name>
-    <description>部署单元③ 设备接入（有状态）：M0a 仅可启动骨架，P4 才接 ypbin-iot-starter</description>
+    <description>部署单元③ 设备接入（有状态）：P4 租约与 self-fencing，P4b 接 ypbin-iot-starter 协议栈</description>
 
     <dependencies>
         <!--
