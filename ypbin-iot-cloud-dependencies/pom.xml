@@ -23,7 +23,7 @@
           该框架**尚未发布**（0.1.0-SNAPSHOT 未上 Maven Central，见 IOT-CLOUD-SPEC.md §11），
           因此下面的 ypbin-iot-bom import 保持注释状态；access 在 P4 才接 iot-starter。
         -->
-        <ypbin.iot.version>0.1.0-SNAPSHOT</ypbin.iot.version>
+        <ypbin.iot.version>0.1.0</ypbin.iot.version>
 
         <!--
           共享内核（cn.ypbin:ypbin-starter-*）的版本，**必须在这里显式重管**。
