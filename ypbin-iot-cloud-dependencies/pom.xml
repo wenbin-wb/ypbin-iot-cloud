@@ -37,7 +37,7 @@
           规则：**本仓每新增一个 starter 依赖，都必须同时加进下面的 dependencyManagement**；
           新增 starter 版本时只改这一个属性。
         -->
-        <ypbin-starter.version>3.4.0</ypbin-starter.version>
+        <ypbin-starter.version>3.6.0</ypbin-starter.version>
     </properties>
 
     <dependencyManagement>
